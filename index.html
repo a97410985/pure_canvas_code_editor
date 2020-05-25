@@ -1,8 +1,9 @@
+<!-- 新增壓住Shift鍵，再按方向鍵選取文字的功能，然後可以刪除選取的文字或複製選取的文字到剪貼簿-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>editor v4</title>
+    <title>editor v5</title>
     <style>
         .editor-non-focus {
             border: black 1px solid;
@@ -150,7 +151,6 @@
             this.caretDiv.style.opacity = '1';
             clearInterval(this.interval);
             this.interval = setInterval(this.blink.bind(this), this.blinkInterval);
-            console.log('haha');
         } else {
             this.caretDiv.style.opacity = '0';
         }
@@ -170,8 +170,8 @@
     }
     Selection.prototype.moveLeft = function () {
         // 要先清除目前選取的東西
-        let curCh = this.start.ch;
-        let curLine = this.start.line;
+        let curCh = this.end.ch;
+        let curLine = this.end.line;
         if (curCh > 0) {
             curCh--;
         } else {
@@ -183,8 +183,8 @@
         this.setPosition(curLine, curCh);
     }
     Selection.prototype.moveRight = function () {
-        let curCh = this.start.ch;
-        let curLine = this.start.line;
+        let curCh = this.end.ch;
+        let curLine = this.end.line;
         let curLineStr = this.editor.editorContent[curLine];
         if (curCh > curLineStr.length - 1) {
             if (curLine < this.editor.editorContent.length - 1) {
@@ -197,8 +197,8 @@
         this.setPosition(curLine, curCh);
     }
     Selection.prototype.moveUp = function () {
-        let curCh = this.start.ch;
-        let curLine = this.start.line;
+        let curCh = this.end.ch;
+        let curLine = this.end.line;
         if (curLine > 0) {
             curLine--;
             let curLineStr = this.editor.editorContent[curLine];
@@ -209,8 +209,8 @@
         this.setPosition(curLine, curCh);
     }
     Selection.prototype.moveDown = function () {
-        let curCh = this.start.ch;
-        let curLine = this.start.line;
+        let curCh = this.end.ch;
+        let curLine = this.end.line;
         if (curLine < this.editor.editorContent.length - 1) {
             curLine++;
             let curLineStr = this.editor.editorContent[curLine];
@@ -219,6 +219,34 @@
             }
         }
         this.setPosition(curLine, curCh);
+    }
+    Selection.prototype.selectLeft = function () {
+        let oriSLine = this.start.line;
+        let oriSCh = this.start.ch;
+        this.moveLeft();
+        this.start.line = oriSLine;
+        this.start.ch = oriSCh;
+    }
+    Selection.prototype.selectRight = function () {
+        let oriSLine = this.start.line;
+        let oriSCh = this.start.ch;
+        this.moveRight();
+        this.start.line = oriSLine;
+        this.start.ch = oriSCh;
+    }
+    Selection.prototype.selectUp = function () {
+        let oriSLine = this.start.line;
+        let oriSCh = this.start.ch;
+        this.moveUp();
+        this.start.line = oriSLine;
+        this.start.ch = oriSCh;
+    }
+    Selection.prototype.selectDown = function () {
+        let oriSLine = this.start.line;
+        let oriSCh = this.start.ch;
+        this.moveDown();
+        this.start.line = oriSLine;
+        this.start.ch = oriSCh;
     }
 
     var Editor = function () {
@@ -250,14 +278,12 @@
             canvas.classList.add('editor-focus');
             selection.caretDiv.style.opacity = '1';
             selection.interval = setInterval(selection.blink.bind(selection), selection.blinkInterval);
-            console.log(selection.interval);
         }
 
         this.lostFocus = function () {
             this.focus = false;
             canvas.classList.remove('editor-focus');
             clearInterval(selection.interval);
-            console.log(selection.interval);
             selection.caretDiv.style.opacity = '0';
         }
 
@@ -270,7 +296,6 @@
         textInput.onblur = function (e) {
             // 因為滑鼠按到瀏覽器不是頁面的視窗或是其他視窗，導致焦點遺失
             this.lostFocus();
-            console.log('haha ' + e);
         }.bind(this);
         document.onclick = function (e) {
             if (e.target === canvas) {
@@ -281,9 +306,44 @@
                 this.lostFocus();
             }
         }.bind(this);
+
+        this.renderSelection = function (sLine, sCh, eLine, eCh) {
+            if (sLine !== eLine || sCh !== eCh){
+                this.ctx.fillStyle = '#c4dbff';
+                let chWid = this.fontMetric.getWidth();
+                let chHgt = this.fontMetric.getHeight();
+                if (sLine === eLine) {
+                    this.ctx.fillRect(2 + Math.min(sCh, eCh) * chWid, chHgt * sLine, chWid * (Math.abs(sCh - eCh)), chHgt);
+                } else if (sLine < eLine) {
+                    // 吃到右邊到底
+                    this.ctx.fillRect(2 + sCh * chWid, chHgt * sLine, chWid * (this.editorContent[sLine].length - sCh), chHgt);
+                    for (let i = sLine + 1; i <= eLine - 1; i++) {
+                        // 填滿整行
+                        this.ctx.fillRect(2, chHgt * i, chWid * this.editorContent[i].length, chHgt);
+                    }
+                    this.ctx.fillRect(2, chHgt * eLine, chWid * eCh, chHgt);
+                } else {
+                    // 吃到左邊到底
+                    this.ctx.fillRect(2, chHgt * sLine, (sCh + 1) * chWid, chHgt);
+                    for (let i = sLine - 1; i >= eLine + 1; i--) {
+                        // 填滿整行
+                        this.ctx.fillRect(2, chHgt * i, chWid * this.editorContent[i].length, chHgt);
+                    }
+                    this.ctx.fillRect(2 + eCh * chWid, chHgt * eLine, chWid * (this.editorContent[eLine].length - eCh), chHgt);
+                }
+            }
+        }
+        // 繪製文字和選取的區塊
         this.render = function () {
+            // 清空畫面
             this.ctx.fillStyle = 'white';
             this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+            // 繪製選取的文字區塊
+            this.renderSelection(selection.getStart().line, selection.getStart().ch, selection.getEnd().line, selection.getEnd().ch);
+            // this.renderSelection(2, 3, 2, 1);
+
+            // 繪製文字
             this.ctx.fillStyle = 'black';
             for (let i = 0; i < this.editorContent.length; i++) {
                 this.ctx.fillText(this.editorContent[i], 2, this.fontMetric.getBaseline() + this.fontMetric.getHeight() * i)
@@ -291,16 +351,15 @@
         }
 
         this.editorContent = [];
-        this.editorContent.push("aaaaaaaaaaaa");
-        this.editorContent.push("mmmmmmmmm");
-        this.editorContent.push("cccccc");
+        this.editorContent.push("asdfpokoqwer");
+        this.editorContent.push("qweroijs");
+        this.editorContent.push("qwerji");
+        this.editorContent.push("qwerqwefwmioef");
         this.selection.setPosition(2, 3);
         this.render();
         let editorContent = this.editorContent;
         let render = this.render.bind(this);
         textInput.oninput = function (e) {
-            console.log(e);
-            console.log(textInput.value);
             if (e.inputType === 'insertFromPaste') {
                 // 要檢查是否有換行符號
                 let lines = textInput.value.split('\n');
@@ -319,23 +378,34 @@
                     editorContent[curLine + lines.length - 1] += rightStr;
                     selection.setPosition(curLine + lines.length - 1, editorContent[curLine + lines.length - 1].length);
                 }
-                console.log(textInput.value.split('\n'));
                 render();
             }
 
         }.bind(this);
         document.onkeydown = function (e) {
             if (this.focus === true) {
-                console.log('key' + e.key);
-                console.log('code' + e.code);
                 // 要特別看待一些特殊按鍵像是Enter、上下左右方向鍵等
-                if (e.ctrlKey === true && e.key === 'c') { // ctrl + c 複製
+                if (e.shiftKey === true && e.key === 'ArrowLeft') {
+                    // 用鍵盤選取文字
+                    selection.selectLeft();
+                } else if (e.shiftKey === true && e.key === 'ArrowRight') {
+                    // 用鍵盤選取文字
+                    selection.selectRight();
+                }else if (e.shiftKey === true && e.key === 'ArrowUp') {
+                    // 用鍵盤選取文字
+                    selection.selectUp();
+                }else if (e.shiftKey === true && e.key === 'ArrowDown') {
+                    // 用鍵盤選取文字
+                    selection.selectDown();
+                }
+                else if (e.ctrlKey === true && e.key === 'c') { // ctrl + c 複製
 
                 } else if (e.ctrlKey === true && e.key === 'v') { // ctrl + v 貼上
                     // 要清掉 textarea 中的文字
                     textInput.value = '';
                 } else if (e.key === 'ArrowLeft') {
                     selection.moveLeft();
+                    console.log(selection.getStart().ch + ' , ' + selection.getEnd().ch);
                 } else if (e.key === 'ArrowRight') {
                     selection.moveRight();
                 } else if (e.key === 'ArrowUp') {
@@ -349,7 +419,6 @@
                     editorContent[selStart.line] = leftStr;
                     this.insertLine(rightStr, selection.getStart().line + 1);
                     selection.setPosition(selStart.line + 1, rightStr.length);
-                    render();
                 } else if (e.key === 'Backspace') {
                     let selStart = selection.getStart();
                     let curLine = selStart.line;
@@ -363,15 +432,14 @@
                         editorContent[curLine - 1] = editorContent[curLine - 1].concat(content);
                         selection.setPosition(curLine - 1, editorContent[curLine - 1].length);
                     }
-                    render();
                 } else if (e.key.length === 1) {
                     let start = selection.getStart();
                     let curLine = start.line;
                     let curCh = start.ch;
                     editorContent[curLine] = editorContent[curLine].substr(0, curCh) + e.key + editorContent[curLine].substr(curCh);
                     selection.addChs(1);
-                    render();
                 }
+                render();
                 // 要清掉 textarea 中的文字
                 textInput.value = '';
             }
