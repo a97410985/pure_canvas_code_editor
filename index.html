@@ -1,9 +1,9 @@
-<!--  讓editorContent和editorContentStyle的內容同步 -->
+<!--  繪製有樣式的文字 以及 修正有時在選取文字結束時會失去畫布的焦點 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>editor v8</title>
+    <title>editor v9</title>
     <style>
         .editor-non-focus {
             border: black 1px solid;
@@ -255,7 +255,7 @@
         this.start.ch = oriSCh;
     }
     Selection.prototype.deleteSelection = function () {
-        console.log('sLine'+this.start.line+" ; eLine"+this.end.line);
+        console.log('sLine' + this.start.line + " ; eLine" + this.end.line);
         if (this.start.line === this.end.line) {
             let content = this.editor.editorContent[this.start.line];
             let left = Math.min(this.start.ch, this.end.ch);
@@ -272,7 +272,7 @@
             let downRightStr = '';
             let startLineStr = this.editor.editorContent[this.start.line];
             let endLineStr = this.editor.editorContent[this.end.line];
-            console.log('sLine'+this.start.line+" ; eLine"+this.end.line);
+            console.log('sLine' + this.start.line + " ; eLine" + this.end.line);
 
             if (this.start.line < this.end.line) {
                 downRightStr = endLineStr.substr(this.end.ch, endLineStr.length - this.end.ch);
@@ -386,7 +386,7 @@
         let textInput = document.getElementById('textInput');
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
-        var fontSize = 20;
+        var fontSize = 17;
         var fontFamily = 'Courier New';
         // 用baseline
         this.fontMetric = new FontMetrics(fontFamily, fontSize);
@@ -408,6 +408,7 @@
             this.focus = true;
             canvas.classList.add('editor-focus');
             selection.caretDiv.style.opacity = '1';
+            clearInterval(selection.interval);
             selection.interval = setInterval(selection.blink.bind(selection), selection.blinkInterval);
         }
 
@@ -425,6 +426,7 @@
             CHANGE: 2,
             ADD: 3
         }
+        // todo: 要替換colorLexer，讓editorContentStyle有色彩資訊
         this.updateEditorContentStyle = function (editType, range) {
             let sLine = parseInt(range.sLine);
             let eLine = parseInt(range.eLine);
@@ -434,22 +436,23 @@
                 let pushIndex = sLine;
                 if (pushIndex < 0) pushIndex = 0;
                 for (let i = sLine; i <= eLine; i++) {
-                    this.editorContentStyle.splice(pushIndex, 0, this.editorContent[i]);
+                    let lineColorInfo = this.colorLexerStr(this.editorContent[i]);
+                    this.editorContentStyle.splice(pushIndex, 0, lineColorInfo);
                     console.log("add line : " + pushIndex);
                     pushIndex++;
                 }
             } else if (editType === this.EditNotifyType.CHANGE) {
                 console.log("change");
                 for (let i = sLine; i <= eLine; i++) {
-                    this.editorContentStyle[i] = this.editorContent[i];
+                    this.editorContentStyle[i] = this.colorLexerStr(this.editorContent[i]);
                     console.log("change line : " + i);
                 }
             } else if (editType === this.EditNotifyType.DELETE) {
                 console.log("delete");
-                this.editorContentStyle.splice(sLine, eLine - sLine+1);
+                this.editorContentStyle.splice(sLine, eLine - sLine + 1);
             }
-            console.log('editorContentStyle : '+this.editorContentStyle);
-            console.log('editorContent : '+this.editorContent);
+            console.log('editorContentStyle : ' + this.editorContentStyle);
+            console.log('editorContent : ' + this.editorContent);
         }
 
         this.selection = new Selection(this);
@@ -497,6 +500,8 @@
             if (canvasMouseDown && canvasMouseUp) {
                 canvasMouseDown = false;
                 canvasMouseUp = false;
+                // 有時畫布會失去焦點，不知為何，所以要讓他重新取回焦點
+                this.getFocus();
             }
 
         }.bind(this);
@@ -527,7 +532,84 @@
                 }
             }
         }
-        // 繪製文字和選取的區塊
+
+        function colorInfo(color, str, type) {
+            return {color: color, str: str, type: type};
+        }
+
+        // todo: 要撰寫將純文字變成有樣式的儲存形式的lexer
+        this.colorLexerStr = function (str) {
+            let wordArr = [];
+            let s = '';
+            for (let i = 0; i < str.length; i++) {
+                if (str[i] !== ' ' && str[i] !== '\t') {
+                    s += str[i];
+                } else {
+                    if (s !== '') {
+                        wordArr.push(s);
+                        s = '';
+                        wordArr.push(' ');
+                    } else if (str[i]===' ') {
+                        wordArr.push(' ');
+                    } else{
+                        wordArr.push('\t');
+                    }
+                }
+            }
+            wordArr.push(s);
+
+            // wordArr會有一些word是「break;』，也就是結尾帶著標點符號
+            // 要把它切開
+            let symbolArr = [':',';'];
+            for (let i = 0 ; i < wordArr.length ; i++){
+                let word = wordArr[i];
+                if (matchOne(word[word.length-1], symbolArr)){
+                    wordArr.splice(i,1,word.substr(0,word.length-1),word.substr(word.length-1,1));
+                    i+=1;
+                }
+            }
+
+            let wordStyleArr = [];
+            console.log(wordArr);
+
+            function matchOne(word, arr) {
+                for (let i = 0; i < arr.length; i++) {
+                    if (word === arr[i]) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            let instructionWordArr = ['and', 'break', 'case', 'catch', 'continue', 'delete', 'new', 'using', 'namespace', 'while', 'return', 'default','do','switch','default'];
+            let instructionWordColor = '#0000FF';
+            let instructionType = 'bold';
+            let typeWordArr = ['bool', 'char', 'const', 'double', 'enum', 'float', 'int', 'void'];
+            let typeWordColor = '#8000FF';
+            let typeWordType = '';
+            // todo: 新增關鍵字與顏色
+            for (let i = 0; i < wordArr.length; i++) {
+                if (matchOne(wordArr[i], instructionWordArr)) {
+                    wordStyleArr.push(colorInfo(instructionWordColor, wordArr[i], instructionType));
+                } else if (matchOne(wordArr[i], typeWordArr)){
+                    wordStyleArr.push(colorInfo(typeWordColor, wordArr[i], typeWordType));
+                } else {
+                    wordStyleArr.push(colorInfo('#000000', wordArr[i], ''));
+                }
+            }
+            return wordStyleArr;
+        }
+        this.colorLexerArr = function (contentArr) {
+            let contentStyleArr = [];
+            for (let i = 0; i < contentArr.length; i++) {
+                contentStyleArr.push(this.colorLexerStr(contentArr[i]));
+            }
+            return contentStyleArr;
+        }
+
+
+        // todo: 要根據editorContentStyle繪製 以及修改繪製方式
+        // 繪製文字和選取的區塊，根據editorContentStyle
         this.render = function () {
             // 清空畫面
             this.ctx.fillStyle = 'white';
@@ -538,20 +620,28 @@
 
             // 繪製文字
             this.ctx.fillStyle = 'black';
-            for (let i = 0; i < this.editorContent.length; i++) {
-                this.ctx.fillText(this.editorContent[i], 2, this.fontMetric.getBaseline() + this.fontMetric.getHeight() * i)
+            for (let i = 0; i < this.editorContentStyle.length; i++) {
+                let posX = 0;
+                for (let j = 0; j < this.editorContentStyle[i].length; j++) {
+                    let content = this.editorContentStyle[i][j].str;
+                    this.ctx.fillStyle = this.editorContentStyle[i][j].color;
+                    if (this.editorContentStyle[i][j].type === 'bold') {
+                        this.ctx.font = 'bold ' + fontSize + 'px ' + fontFamily;
+                    } else {
+                        this.ctx.font = fontSize + 'px ' + fontFamily;
+                    }
+                    this.ctx.fillText(content, 2 + posX, this.fontMetric.getBaseline() + this.fontMetric.getHeight() * i);
+                    posX += this.fontMetric.getWidth() * content.length;
+                }
             }
         }
 
         this.editorContent = [];
-        this.editorContent.push("a   aaaaa");
-        this.editorContent.push("bbbbbbbb");
-        this.editorContent.push("ccccccccc");
-        this.editorContent.push("ddddddddddd");
-        this.editorContentStyle.push("aaaaaa");
-        this.editorContentStyle.push("bbbbbbbb");
-        this.editorContentStyle.push("ccccccccc");
-        this.editorContentStyle.push("ddddddddddd");
+        this.editorContent.push("aa aaa  a");
+        this.editorContent.push("bbb  bbb  bb");
+        this.editorContent.push("ccc     cccccc");
+        this.editorContent.push("ddd       dddddddd");
+        this.editorContentStyle = this.colorLexerArr(this.editorContent);
         this.selection.setPosition(2, 3);
         this.render();
         let editorContent = this.editorContent;
@@ -580,12 +670,12 @@
                     selection.setPosition(curLine + lines.length - 1, editorContent[curLine + lines.length - 1].length);
                 }
                 // 送出改變通知
-                this.updateEditorContentStyle(EditNotifyType.CHANGE, {
+                this.updateEditorContentStyle(this.EditNotifyType.CHANGE, {
                     sLine: curLine,
                     eLine: curLine
                 });
                 if (lines.length > 1) {
-                    this.updateEditorContentStyle(EditNotifyType.ADD, {
+                    this.updateEditorContentStyle(this.EditNotifyType.ADD, {
                         sLine: curLine + 1,
                         eLine: parseInt(curLine) + (lines.length) - 1
                     });
@@ -631,7 +721,16 @@
                     let leftStr = editorContent[selStart.line].substr(0, selStart.ch);
                     let rightStr = editorContent[selStart.line].substr(selStart.ch, editorContent[selStart.line].length - selStart.ch);
                     editorContent[selStart.line] = leftStr;
+                    let curLine = selStart.line;
                     this.insertLine(rightStr, selection.getStart().line + 1);
+                    this.updateEditorContentStyle(this.EditNotifyType.CHANGE, {
+                        sLine: curLine,
+                        eLine: curLine
+                    });
+                    this.updateEditorContentStyle(this.EditNotifyType.ADD, {
+                        sLine: curLine + 1,
+                        eLine: curLine + 1
+                    });
                     selection.setPosition(selStart.line + 1, rightStr.length);
                     textInput.value = '';
                 } else if (e.key === 'Backspace') {
@@ -643,15 +742,18 @@
                             editorContent[curLine] = editorContent[curLine].substr(0, curCh - 1) + editorContent[curLine].substr(curCh, editorContent[curLine].length);
                             selection.addChs(-1);
                             // 送出通知
-                            this.updateEditorContentStyle(this.EditNotifyType.CHANGE, {sLine:curLine, eLine:curLine});
+                            this.updateEditorContentStyle(this.EditNotifyType.CHANGE, {sLine: curLine, eLine: curLine});
                         } else if (curLine !== 0) {
                             let content = editorContent[curLine];
                             editorContent.splice(curLine, 1);
                             editorContent[curLine - 1] = editorContent[curLine - 1].concat(content);
                             selection.setPosition(curLine - 1, editorContent[curLine - 1].length);
                             // 送出通知
-                            this.updateEditorContentStyle(this.EditNotifyType.DELETE, {sLine:curLine, eLine:curLine});
-                            this.updateEditorContentStyle(this.EditNotifyType.CHANGE, {sLine:curLine-1, eLine:curLine-1});
+                            this.updateEditorContentStyle(this.EditNotifyType.DELETE, {sLine: curLine, eLine: curLine});
+                            this.updateEditorContentStyle(this.EditNotifyType.CHANGE, {
+                                sLine: curLine - 1,
+                                eLine: curLine - 1
+                            });
                         }
                     } else {
                         selection.deleteSelection();
@@ -666,7 +768,6 @@
                     editorContent[curLine] = editorContent[curLine].substr(0, curCh) + e.key + editorContent[curLine].substr(curCh);
                     selection.addChs(1);
                     this.updateEditorContentStyle(this.EditNotifyType.CHANGE, {sLine: curLine, eLine: curLine});
-                    console.log(this.editorContent.toString() === this.editorContentStyle.toString());
                     textInput.value = '';
                 }
                 render();
