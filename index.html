@@ -1,9 +1,9 @@
-<!--  可以藉由滑鼠點擊畫布，改變游標的位置 -->
+<!--  讓editorContent和editorContentStyle的內容同步 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>editor v7</title>
+    <title>editor v8</title>
     <style>
         .editor-non-focus {
             border: black 1px solid;
@@ -17,7 +17,7 @@
 <body>
 <div id="canvas-text-editor">
     <canvas id="canvas" width="500" height="500"></canvas>
-    <textarea id="textInput"></textarea>
+    <textarea id="textInput" style="position: absolute"></textarea>
 </div>
 
 <script src="https://ajax.googleapis.com/ajax/libs/webfont/1.6.26/webfont.js"></script>
@@ -143,7 +143,6 @@
         return this.end;
     }
     Selection.prototype.updateCursor = function (line, ch) {
-        let fontWid = this.editor.getFontMetric().getWidth();
         let lineContent = this.editor.editorContent[line];
         let contentWid = this.editor.ctx.measureText(lineContent.substr(0, ch)).width;
         this.caretDiv.style.left = (this.editor.canvas.offsetLeft + contentWid + 1).toString() + 'px';
@@ -162,11 +161,17 @@
         this.end.ch += num;
         this.updateCursor(this.start.line, this.start.ch);
     }
-    Selection.prototype.setPosition = function (line, ch) {
+    Selection.prototype.setStartPos = function (line, ch) {
         this.start.line = line;
         this.start.ch = ch;
+    }
+    Selection.prototype.setEndPos = function (line, ch) {
         this.end.line = line;
         this.end.ch = ch;
+    }
+    Selection.prototype.setPosition = function (line, ch) {
+        this.setStartPos(line, ch);
+        this.setEndPos(line, ch);
         this.updateCursor(line, ch);
     }
     Selection.prototype.moveLeft = function () {
@@ -250,26 +255,54 @@
         this.start.ch = oriSCh;
     }
     Selection.prototype.deleteSelection = function () {
+        console.log('sLine'+this.start.line+" ; eLine"+this.end.line);
         if (this.start.line === this.end.line) {
             let content = this.editor.editorContent[this.start.line];
             let left = Math.min(this.start.ch, this.end.ch);
             let right = Math.max(this.start.ch, this.end.ch);
             this.editor.editorContent[this.start.line] = content.substr(0, left) + content.substr(right, content.length - right);
             this.setPosition(this.start.line, left);
+            // 送出通知
+            this.editor.updateEditorContentStyle(this.editor.EditNotifyType.CHANGE, {
+                sLine: this.start.line,
+                eLine: this.end.line
+            });
         } else {
             // 一定有一行在比較下面，我叫他downRightStr
             let downRightStr = '';
             let startLineStr = this.editor.editorContent[this.start.line];
             let endLineStr = this.editor.editorContent[this.end.line];
+            console.log('sLine'+this.start.line+" ; eLine"+this.end.line);
+
             if (this.start.line < this.end.line) {
                 downRightStr = endLineStr.substr(this.end.ch, endLineStr.length - this.end.ch);
                 this.editor.editorContent.splice(this.start.line + 1, this.end.line - this.start.line);
                 this.editor.editorContent[this.start.line] = startLineStr.substr(0, this.start.ch) + downRightStr;
+                // 送出通知
+                this.editor.updateEditorContentStyle(this.editor.EditNotifyType.DELETE, {
+                    sLine: this.start.line + 1,
+                    eLine: this.end.line
+                });
+
+                this.editor.updateEditorContentStyle(this.editor.EditNotifyType.CHANGE, {
+                    sLine: this.start.line,
+                    eLine: this.start.line
+                });
                 this.setPosition(this.start.line, this.start.ch);
             } else {
                 downRightStr = startLineStr.substr(this.start.ch, startLineStr.length - this.start.ch);
                 this.editor.editorContent.splice(this.end.line + 1, this.start.line - this.end.line);
                 this.editor.editorContent[this.end.line] = endLineStr.substr(0, this.end.ch) + downRightStr;
+                // 送出通知
+                this.editor.updateEditorContentStyle(this.editor.EditNotifyType.DELETE, {
+                    sLine: this.end.line + 1,
+                    eLine: this.start.line
+                });
+
+                this.editor.updateEditorContentStyle(this.editor.EditNotifyType.CHANGE, {
+                    sLine: this.end.line,
+                    eLine: this.end.line
+                });
                 this.setPosition(this.end.line, this.end.ch);
             }
 
@@ -314,25 +347,37 @@
         document.execCommand('copy');
         this.textInputDom.value = '';
     }
-    Selection.prototype.mouseClick = function (e) {
+    // 要輸入相對於畫布的滑鼠座標
+    Selection.prototype.getCaretPos = function (x, y) {
+        // 超過目前所擁有的列，就取最後一列
+        let row = Math.floor(y / this.editor.fontMetric.getHeight());
+        if (row > this.editor.editorContent.length - 1) {
+            row = this.editor.editorContent.length - 1;
+        }
+        // 如果超過所在列最右邊的字，就取最右邊的字
+        let column = Math.floor((x / (this.editor.fontMetric.getWidth() / 2.0) + 1) / 2);
+        if (column > this.editor.editorContent[row].length) {
+            column = this.editor.editorContent[row].length;
+        }
+        return {
+            line: row,
+            ch: column
+        };
+    }
+    Selection.prototype.getMousePos = function (e) {
         let rect = e.target.getBoundingClientRect();
         let x = e.clientX - rect.left;
         let y = e.clientY - rect.top;
-        console.log(x + ' , ' + y);
+        return {
+            x: x,
+            y: y
+        }
+    }
+    Selection.prototype.mouseClick = function (e) {
+        let mousePos = this.getMousePos(e);
         //  偵測在點擊的地方在哪，更改游標位置
-        console.log(this.editor.fontMetric);
-        // 超過目前所擁有的列，就取最後一列
-        let row = Math.floor(y / this.editor.fontMetric.getHeight());
-        if (row > this.editor.editorContent.length-1) {
-            row = this.editor.editorContent.length-1;
-        }
-        // 如果超過所在列最右邊的字，就取最右邊的字
-        let column = Math.floor((x/(this.editor.fontMetric.getWidth()/2.0)+1)/2);
-        if (column > this.editor.editorContent[row].length){
-            column = this.editor.editorContent[row].length;
-        }
-        console.log('列 : ' + row + ' , 行 : ' + column);
-        this.setPosition(row,column);
+        let pos = this.getCaretPos(mousePos.x, mousePos.y);
+        this.setPosition(pos.line, pos.ch);
     }
 
     var Editor = function () {
@@ -373,6 +418,39 @@
             selection.caretDiv.style.opacity = '0';
         }
 
+        // 繪製時需要使用的文字與樣式資訊
+        this.editorContentStyle = [];
+        this.EditNotifyType = {
+            DELETE: 1,
+            CHANGE: 2,
+            ADD: 3
+        }
+        this.updateEditorContentStyle = function (editType, range) {
+            let sLine = parseInt(range.sLine);
+            let eLine = parseInt(range.eLine);
+            if (editType === this.EditNotifyType.ADD) {
+                console.log("add");
+                // sLine代表從第幾個editorContent為新增的內容
+                let pushIndex = sLine;
+                if (pushIndex < 0) pushIndex = 0;
+                for (let i = sLine; i <= eLine; i++) {
+                    this.editorContentStyle.splice(pushIndex, 0, this.editorContent[i]);
+                    console.log("add line : " + pushIndex);
+                    pushIndex++;
+                }
+            } else if (editType === this.EditNotifyType.CHANGE) {
+                console.log("change");
+                for (let i = sLine; i <= eLine; i++) {
+                    this.editorContentStyle[i] = this.editorContent[i];
+                    console.log("change line : " + i);
+                }
+            } else if (editType === this.EditNotifyType.DELETE) {
+                console.log("delete");
+                this.editorContentStyle.splice(sLine, eLine - sLine+1);
+            }
+            console.log('editorContentStyle : '+this.editorContentStyle);
+            console.log('editorContent : '+this.editorContent);
+        }
 
         this.selection = new Selection(this);
         let selection = this.selection;
@@ -383,15 +461,44 @@
             // 因為滑鼠按到瀏覽器不是頁面的視窗或是其他視窗，導致焦點遺失
             this.lostFocus();
         }.bind(this);
+
         document.onclick = function (e) {
             if (e.target === canvas) {
                 if (this.focus === false) {
                     this.getFocus();
                 }
-                selection.mouseClick(e);
             } else {
                 this.lostFocus();
             }
+        }.bind(this);
+
+
+        let canvasMouseUp = false;
+        let canvasMouseDown = false;
+        document.onmouseup = function (e) {
+            canvasMouseUp = true;
+        }.bind(this);
+        canvas.onmousedown = function (e) {
+            canvasMouseDown = true;
+            selection.mouseClick(e);
+            render();
+        }.bind(this);
+        canvas.onmousemove = function (e) {
+            let sLine = selection.getStart().line;
+            let sCh = selection.getStart().ch;
+            let mousePos = selection.getMousePos(e);
+            let mouseUpCaretPos = selection.getCaretPos(mousePos.x, mousePos.y);
+            // t設定選取的範圍
+            if (canvasMouseDown) {
+                selection.setEndPos(mouseUpCaretPos.line, mouseUpCaretPos.ch);
+                selection.updateCursor(mouseUpCaretPos.line, mouseUpCaretPos.ch);
+                render();
+            }
+            if (canvasMouseDown && canvasMouseUp) {
+                canvasMouseDown = false;
+                canvasMouseUp = false;
+            }
+
         }.bind(this);
 
         this.renderSelection = function (sLine, sCh, eLine, eCh) {
@@ -437,10 +544,14 @@
         }
 
         this.editorContent = [];
-        this.editorContent.push("asdfpokoqwer");
-        this.editorContent.push("mwjroijs");
-        this.editorContent.push("ojdwji");
-        this.editorContent.push("qwerqwefwmioef");
+        this.editorContent.push("a   aaaaa");
+        this.editorContent.push("bbbbbbbb");
+        this.editorContent.push("ccccccccc");
+        this.editorContent.push("ddddddddddd");
+        this.editorContentStyle.push("aaaaaa");
+        this.editorContentStyle.push("bbbbbbbb");
+        this.editorContentStyle.push("ccccccccc");
+        this.editorContentStyle.push("ddddddddddd");
         this.selection.setPosition(2, 3);
         this.render();
         let editorContent = this.editorContent;
@@ -468,12 +579,23 @@
                     editorContent[curLine + lines.length - 1] += rightStr;
                     selection.setPosition(curLine + lines.length - 1, editorContent[curLine + lines.length - 1].length);
                 }
+                // 送出改變通知
+                this.updateEditorContentStyle(EditNotifyType.CHANGE, {
+                    sLine: curLine,
+                    eLine: curLine
+                });
+                if (lines.length > 1) {
+                    this.updateEditorContentStyle(EditNotifyType.ADD, {
+                        sLine: curLine + 1,
+                        eLine: parseInt(curLine) + (lines.length) - 1
+                    });
+                }
+                console.log(this.editorContent.toString() === this.editorContentStyle.toString());
                 render();
             }
 
         }.bind(this);
         document.onkeydown = function (e) {
-            console.log('haha' + e);
             if (this.focus === true) {
                 // 要特別看待一些特殊按鍵像是Enter、上下左右方向鍵等
                 if (e.shiftKey === true && e.key === 'ArrowLeft') {
@@ -495,7 +617,6 @@
                     textInput.value = '';
                 } else if (e.key === 'ArrowLeft') {
                     selection.moveLeft();
-                    console.log(selection.getStart().ch + ' , ' + selection.getEnd().ch);
                 } else if (e.key === 'ArrowRight') {
                     selection.moveRight();
                 } else if (e.key === 'ArrowUp') {
@@ -521,11 +642,16 @@
                         if (curCh > 0) {
                             editorContent[curLine] = editorContent[curLine].substr(0, curCh - 1) + editorContent[curLine].substr(curCh, editorContent[curLine].length);
                             selection.addChs(-1);
+                            // 送出通知
+                            this.updateEditorContentStyle(this.EditNotifyType.CHANGE, {sLine:curLine, eLine:curLine});
                         } else if (curLine !== 0) {
                             let content = editorContent[curLine];
                             editorContent.splice(curLine, 1);
                             editorContent[curLine - 1] = editorContent[curLine - 1].concat(content);
                             selection.setPosition(curLine - 1, editorContent[curLine - 1].length);
+                            // 送出通知
+                            this.updateEditorContentStyle(this.EditNotifyType.DELETE, {sLine:curLine, eLine:curLine});
+                            this.updateEditorContentStyle(this.EditNotifyType.CHANGE, {sLine:curLine-1, eLine:curLine-1});
                         }
                     } else {
                         selection.deleteSelection();
@@ -539,6 +665,8 @@
                     let curCh = start.ch;
                     editorContent[curLine] = editorContent[curLine].substr(0, curCh) + e.key + editorContent[curLine].substr(curCh);
                     selection.addChs(1);
+                    this.updateEditorContentStyle(this.EditNotifyType.CHANGE, {sLine: curLine, eLine: curLine});
+                    console.log(this.editorContent.toString() === this.editorContentStyle.toString());
                     textInput.value = '';
                 }
                 render();
