@@ -13,3 +13,6 @@
    1. 可以選取文字
    2. 選取文字時，如果滑鼠超過編輯範圍，會往上、下、左、右移動選取
    3. 可以點擊讓文字游標移動到點擊的地方
+   
+## DEMO youtube video
+https://www.youtube.com/watch?v=LTyk7HCQlXA&feature=youtu.be
