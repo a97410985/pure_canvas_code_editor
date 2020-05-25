@@ -1,10 +1,11 @@
-<!-- 增加編輯器(畫布)，讓他有水平滑桿跟垂直滑桿 以及 如果發現caret游標在畫布外就要自動捲動讓caret可以被看到 -->
-<!-- 解決字體模糊的問題 -->
+<!-- 能夠調整畫布大小，以及增加dark_mode -->
+<!-- 先增加兩個按鈕，一個按下會變寬、一個按下會變窄，來測試畫布變化 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>editor v11</title>
+    <title>editor_v12</title>
+
     <style>
         .editor-non-focus {
             border: black 1px solid;
@@ -72,6 +73,9 @@
     </div>
     <input type="range" min="0" max="100" value="0" class="slider">
 </div>
+<!-- todo:按鈕 -->
+<button id="increase-btn">讓畫布變寬</button>
+
 <!-- source: https://github.com/jondavidjohn/hidpi-canvas-polyfill 將高畫質圖像縮小來達成高畫質繪製，解決字體模糊的問題 -->
 <script src="lib/hidpi-canvas.min.js"></script>
 <script src="https://ajax.googleapis.com/ajax/libs/webfont/1.6.26/webfont.js"></script>
@@ -199,7 +203,7 @@
     let canvas = document.getElementById('canvas');
     let editor_vScrollBar = document.querySelector('#canvas-text-editor>div>input[type=range]');
     let editor_hScrollBar = document.querySelector('#canvas-text-editor>input[type=range]');
-    // todo: caret可能超出邊界
+    // caret可能超出邊界
     Selection.prototype.updateCursor = function (line, ch) {
         // 因為一個tab佔四個空格，所以caret位置的計算比較特別
         let lineContent = this.editor.editorContent[line];
@@ -581,6 +585,7 @@
             return maxLeng;
         }
         this.updateSliderBar = function () {
+            let editor_scrollBar_style = document.querySelector('[data="slider"]');
             editor_scrollBar_style.innerHTML = ".v-slider::-webkit-slider-thumb { width: " + canvas.clientHeight / editor_height * canvas.clientHeight + "px; } .slider::-webkit-slider-thumb { width: " + canvas.clientWidth / editor_width * canvas.clientWidth + "px; }";
         }
         this.getEditorWid = function () {
@@ -613,7 +618,7 @@
             let oriVValue = parseInt(editor_vScrollBar.value);
             editor_vScrollBar.value = oriVValue + Math.ceil(moveY / (editor_height - canvas.clientHeight) * 100);
         }
-        // todo: 撰寫能夠檢查caret是否超過邊界的函數
+        //  撰寫能夠檢查caret是否超過邊界的函數
         this.checkCaretOutOfRange = function () {
             let endLine = this.selection.getEnd().line;
             let endCh = this.selection.getEnd().ch;
@@ -687,8 +692,6 @@
             }
         }.bind(this);
 
-
-        let canvasMouseUp = false;
         let canvasMouseDown = false;
         let expandSelection = function (offsetX, offsetY) {
             console.log(this.editorContent[this.selection.getEnd().line].length);
@@ -712,8 +715,6 @@
                     this.selection.setEndPos(oriEndLine + offsetY, oriEndCh);
                 }
             }
-            console.log(' haha: ' + oriEndCh);
-            // todo: haha
             this.checkCaretOutOfRange();
             this.render();
         }.bind(this);
@@ -725,12 +726,12 @@
                 this.getFocus();
             }
         }.bind(this);
-        document.onmousedown = function (e) {
+        document.addEventListener('mousedown', function (e) {
             canvasMouseDown = true;
             selection.mouseClick(e);
             console.log('document.onmousedown');
             render();
-        }.bind(this);
+        });
 
         canvas.onmouseleave = function (e) {
             let mousePos = selection.getMousePos(e);
@@ -740,7 +741,7 @@
                     expandSelection_id = setInterval(function () {
                         expandSelection(1, 0);
                     }, 50);
-                } else if (mousePos.x <= canvas.style.left+10) {
+                } else if (mousePos.x <= canvas.style.left + 10) {
                     console.log('canvas.onmouseleave ');
                     expandSelection_id = setInterval(function () {
                         expandSelection(-1, 0);
@@ -762,7 +763,7 @@
         canvas.onmousemove = function (e) {
             let mousePos = selection.getMousePos(e);
             let curCaretPos = selection.getCaretPos(mousePos.x, mousePos.y);
-            // todo: 這時候做的事情很有可能是選取區塊並且滑鼠位置在畫布外，如果是那樣的話就很可能進行游標的移動
+            //  這時候做的事情很有可能是選取區塊並且滑鼠位置在畫布外，如果是那樣的話就很可能進行游標的移動
             // 設定選取的範圍
             if (canvasMouseDown) {
                 if (expandSelection_id) {
@@ -1126,7 +1127,6 @@
                     selection.addChs(1);
                     this.updateEditorContentStyle(this.EditNotifyType.CHANGE, {sLine: curLine, eLine: curLine});
                     textInput.value = '';
-
                 }
                 // 可能會因為刪掉或新增而要刷新editor_height, editor_width和滑桿thumb的大小
                 editor_height = this.getEditorHgt();
@@ -1134,6 +1134,7 @@
                 this.updateSliderBar();
                 this.checkCaretOutOfRange();
                 render();
+                console.log('haha');
                 // 如果焦點在canvas上，也就是編輯器上，就讓編輯器吃掉鍵盤訊號，不要讓鍵盤訊號影響到其他的地方
                 if (e.ctrlKey !== true && e.key !== 'v') {
                     e.preventDefault();
@@ -1142,27 +1143,43 @@
         }.bind(this);
         // 下面是根據滑桿重新繪製的部分
 
+        this.handleCanvasSizeChange = function () {
+            // 根據畫布大小，調整水平和垂直滑桿的長度
+            editor_hScrollBar.style.width = canvas.clientWidth + 'px';
+            editor_vScrollBar.style.width = canvas.clientHeight + 'px';
+            editor_vScrollBar.style.top = canvas.clientHeight / 2 - 12 + 'px';
+            editor_vScrollBar.style.left = -editor_vScrollBar.clientWidth / 2 + canvas.clientWidth + 12 + 'px';
 
-        // 根據畫布大小，調整水平和垂直滑桿的長度
-        editor_hScrollBar.style.width = canvas.clientWidth + 'px';
-        editor_vScrollBar.style.width = canvas.clientHeight + 'px';
-        editor_vScrollBar.style.top = canvas.clientHeight / 2 - 12 + 'px';
-        editor_vScrollBar.style.left = -editor_vScrollBar.clientWidth / 2 + canvas.clientWidth + 12 + 'px';
+            // 根據實際編輯區塊的大小與畫布大小，決定滑桿上的按鈕長度
+            let editor_scrollBar_style = document.querySelector('[data="slider"]');
+            editor_scrollBar_style.innerHTML = ".v-slider::-webkit-slider-thumb { width: " + canvas.clientHeight / editor_height * canvas.clientHeight + "px; } .slider::-webkit-slider-thumb { width: " + canvas.clientWidth / editor_width * canvas.clientWidth + "px; }";
+        }
+        let oriRatio = canvas.width/parseInt(canvas.style.width);
+        console.log("oriRatio : "+ oriRatio);
 
-        // 根據實際編輯區塊的大小與畫布大小，決定滑桿上的按鈕長度
-        let editor_scrollBar_style = document.querySelector('[data="slider"]');
-        editor_scrollBar_style.innerHTML = ".v-slider::-webkit-slider-thumb { width: " + canvas.clientHeight / editor_height * canvas.clientHeight + "px; } .slider::-webkit-slider-thumb { width: " + canvas.clientWidth / editor_width * canvas.clientWidth + "px; }";
+        // todo: 改變畫布的寬度
+        function increaseCanvasWid() {
+            let widStr = (parseInt(canvas.style.width) + 10)*oriRatio + 'px';
+            canvas.width += 10;
+            canvas.style.width = widStr;
+            let hgtStr = (parseInt(canvas.style.height) + 10)*oriRatio + 'px';
+            canvas.height += 10;
+            canvas.style.height = hgtStr;
+            editor.handleCanvasSizeChange();
+        }
+
+        document.getElementById('increase-btn').onclick = increaseCanvasWid;
+
+        this.handleCanvasSizeChange();
 
         render();
         // 當拉動滑桿時要重新繪製
         editor_vScrollBar.oninput = function () {
-            let offset = this.getOffset();
             // 重新繪製
-            // todo: 繪製東西的位置要根據滑桿做調整
+            // 繪製東西的位置要根據滑桿做調整
             render();
         }.bind(this);
         editor_hScrollBar.oninput = function () {
-            let offset = this.getOffset();
             // 重新繪製
             console.log(editor_hScrollBar.value);
             render();
