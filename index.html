@@ -1,9 +1,9 @@
-<!--  能對選取的文字進行操作，ex:刪除、複製、覆蓋 -->
+<!--  可以藉由滑鼠點擊畫布，改變游標的位置 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>editor v6</title>
+    <title>editor v7</title>
     <style>
         .editor-non-focus {
             border: black 1px solid;
@@ -283,7 +283,7 @@
         if (this.start.line === this.end.line) {
             let min = Math.min(this.start.ch, this.end.ch);
             let max = Math.max(this.start.ch, this.end.ch);
-            copyStr = this.editor.editorContent[this.start.line].substr(min, max-min);
+            copyStr = this.editor.editorContent[this.start.line].substr(min, max - min);
         } else {
             let upLine = 0;
             let downLine = 0;
@@ -300,10 +300,10 @@
                 upLineRightStr = this.editor.editorContent[this.end.line].substr(this.end.ch, this.editor.editorContent[upLine].length - this.end.ch);
                 downLineLeftStr = this.editor.editorContent[this.start.line].substr(0, this.start.ch);
             }
-            if (upLine + 1 === downLine){
-                copyStr = upLineRightStr+ '\n' + downLineLeftStr;
+            if (upLine + 1 === downLine) {
+                copyStr = upLineRightStr + '\n' + downLineLeftStr;
             } else {
-                copyStr = upLineRightStr+ '\n' + this.editor.editorContent.slice(upLine+1,downLine).join('\n') + '\n' + downLineLeftStr;
+                copyStr = upLineRightStr + '\n' + this.editor.editorContent.slice(upLine + 1, downLine).join('\n') + '\n' + downLineLeftStr;
             }
 
         }
@@ -313,6 +313,26 @@
         this.textInputDom.select();
         document.execCommand('copy');
         this.textInputDom.value = '';
+    }
+    Selection.prototype.mouseClick = function (e) {
+        let rect = e.target.getBoundingClientRect();
+        let x = e.clientX - rect.left;
+        let y = e.clientY - rect.top;
+        console.log(x + ' , ' + y);
+        //  偵測在點擊的地方在哪，更改游標位置
+        console.log(this.editor.fontMetric);
+        // 超過目前所擁有的列，就取最後一列
+        let row = Math.floor(y / this.editor.fontMetric.getHeight());
+        if (row > this.editor.editorContent.length-1) {
+            row = this.editor.editorContent.length-1;
+        }
+        // 如果超過所在列最右邊的字，就取最右邊的字
+        let column = Math.floor((x/(this.editor.fontMetric.getWidth()/2.0)+1)/2);
+        if (column > this.editor.editorContent[row].length){
+            column = this.editor.editorContent[row].length;
+        }
+        console.log('列 : ' + row + ' , 行 : ' + column);
+        this.setPosition(row,column);
     }
 
     var Editor = function () {
@@ -368,6 +388,7 @@
                 if (this.focus === false) {
                     this.getFocus();
                 }
+                selection.mouseClick(e);
             } else {
                 this.lostFocus();
             }
@@ -523,9 +544,8 @@
                 render();
             }
         }.bind(this);
+
     }
-
-
 </script>
 
 <script>
