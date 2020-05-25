@@ -1,9 +1,9 @@
-<!-- 新增壓住Shift鍵，再按方向鍵選取文字的功能，然後可以刪除選取的文字或複製選取的文字到剪貼簿-->
+<!--  能對選取的文字進行操作，ex:刪除、複製、覆蓋 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>editor v5</title>
+    <title>editor v6</title>
     <style>
         .editor-non-focus {
             border: black 1px solid;
@@ -112,6 +112,7 @@
 <script>
     var Selection = function (editor) {
         this.editor = editor;
+        this.textInputDom = document.getElementById('textInput');
         this.start = {
             line: 0,
             ch: 0
@@ -248,6 +249,71 @@
         this.start.line = oriSLine;
         this.start.ch = oriSCh;
     }
+    Selection.prototype.deleteSelection = function () {
+        if (this.start.line === this.end.line) {
+            let content = this.editor.editorContent[this.start.line];
+            let left = Math.min(this.start.ch, this.end.ch);
+            let right = Math.max(this.start.ch, this.end.ch);
+            this.editor.editorContent[this.start.line] = content.substr(0, left) + content.substr(right, content.length - right);
+            this.setPosition(this.start.line, left);
+        } else {
+            // 一定有一行在比較下面，我叫他downRightStr
+            let downRightStr = '';
+            let startLineStr = this.editor.editorContent[this.start.line];
+            let endLineStr = this.editor.editorContent[this.end.line];
+            if (this.start.line < this.end.line) {
+                downRightStr = endLineStr.substr(this.end.ch, endLineStr.length - this.end.ch);
+                this.editor.editorContent.splice(this.start.line + 1, this.end.line - this.start.line);
+                this.editor.editorContent[this.start.line] = startLineStr.substr(0, this.start.ch) + downRightStr;
+                this.setPosition(this.start.line, this.start.ch);
+            } else {
+                downRightStr = startLineStr.substr(this.start.ch, startLineStr.length - this.start.ch);
+                this.editor.editorContent.splice(this.end.line + 1, this.start.line - this.end.line);
+                this.editor.editorContent[this.end.line] = endLineStr.substr(0, this.end.ch) + downRightStr;
+                this.setPosition(this.end.line, this.end.ch);
+            }
+
+        }
+    }
+    Selection.prototype.isSelection = function () {
+        return !(this.start.line === this.end.line && this.start.ch === this.end.ch);
+    }
+    Selection.prototype.copySelection = function () {
+        let copyStr = '';
+        if (this.start.line === this.end.line) {
+            let min = Math.min(this.start.ch, this.end.ch);
+            let max = Math.max(this.start.ch, this.end.ch);
+            copyStr = this.editor.editorContent[this.start.line].substr(min, max-min);
+        } else {
+            let upLine = 0;
+            let downLine = 0;
+            let upLineRightStr = '';
+            let downLineLeftStr = '';
+            if (this.start.line < this.end.line) {
+                upLine = this.start.line;
+                downLine = this.end.line;
+                upLineRightStr = this.editor.editorContent[this.start.line].substr(this.start.ch, this.editor.editorContent[upLine].length - this.start.ch);
+                downLineLeftStr = this.editor.editorContent[this.end.line].substr(0, this.end.ch);
+            } else {
+                upLine = this.end.line;
+                downLine = this.start.line;
+                upLineRightStr = this.editor.editorContent[this.end.line].substr(this.end.ch, this.editor.editorContent[upLine].length - this.end.ch);
+                downLineLeftStr = this.editor.editorContent[this.start.line].substr(0, this.start.ch);
+            }
+            if (upLine + 1 === downLine){
+                copyStr = upLineRightStr+ '\n' + downLineLeftStr;
+            } else {
+                copyStr = upLineRightStr+ '\n' + this.editor.editorContent.slice(upLine+1,downLine).join('\n') + '\n' + downLineLeftStr;
+            }
+
+        }
+        console.log('copy: ' + copyStr);
+        //  要把文字真的放到剪貼簿
+        this.textInputDom.value = copyStr;
+        this.textInputDom.select();
+        document.execCommand('copy');
+        this.textInputDom.value = '';
+    }
 
     var Editor = function () {
         this.editor = document.getElementById("canvas-text-editor");
@@ -308,7 +374,7 @@
         }.bind(this);
 
         this.renderSelection = function (sLine, sCh, eLine, eCh) {
-            if (sLine !== eLine || sCh !== eCh){
+            if (sLine !== eLine || sCh !== eCh) {
                 this.ctx.fillStyle = '#c4dbff';
                 let chWid = this.fontMetric.getWidth();
                 let chHgt = this.fontMetric.getHeight();
@@ -324,7 +390,7 @@
                     this.ctx.fillRect(2, chHgt * eLine, chWid * eCh, chHgt);
                 } else {
                     // 吃到左邊到底
-                    this.ctx.fillRect(2, chHgt * sLine, (sCh + 1) * chWid, chHgt);
+                    this.ctx.fillRect(2, chHgt * sLine, sCh * chWid, chHgt);
                     for (let i = sLine - 1; i >= eLine + 1; i--) {
                         // 填滿整行
                         this.ctx.fillRect(2, chHgt * i, chWid * this.editorContent[i].length, chHgt);
@@ -341,7 +407,6 @@
 
             // 繪製選取的文字區塊
             this.renderSelection(selection.getStart().line, selection.getStart().ch, selection.getEnd().line, selection.getEnd().ch);
-            // this.renderSelection(2, 3, 2, 1);
 
             // 繪製文字
             this.ctx.fillStyle = 'black';
@@ -352,8 +417,8 @@
 
         this.editorContent = [];
         this.editorContent.push("asdfpokoqwer");
-        this.editorContent.push("qweroijs");
-        this.editorContent.push("qwerji");
+        this.editorContent.push("mwjroijs");
+        this.editorContent.push("ojdwji");
         this.editorContent.push("qwerqwefwmioef");
         this.selection.setPosition(2, 3);
         this.render();
@@ -361,6 +426,10 @@
         let render = this.render.bind(this);
         textInput.oninput = function (e) {
             if (e.inputType === 'insertFromPaste') {
+                // 如果有選取文字，要把選取的刪掉，因為是覆蓋上去
+                if (selection.isSelection()) {
+                    selection.deleteSelection();
+                }
                 // 要檢查是否有換行符號
                 let lines = textInput.value.split('\n');
                 let curLine = selection.getStart().line;
@@ -383,6 +452,7 @@
 
         }.bind(this);
         document.onkeydown = function (e) {
+            console.log('haha' + e);
             if (this.focus === true) {
                 // 要特別看待一些特殊按鍵像是Enter、上下左右方向鍵等
                 if (e.shiftKey === true && e.key === 'ArrowLeft') {
@@ -391,15 +461,14 @@
                 } else if (e.shiftKey === true && e.key === 'ArrowRight') {
                     // 用鍵盤選取文字
                     selection.selectRight();
-                }else if (e.shiftKey === true && e.key === 'ArrowUp') {
+                } else if (e.shiftKey === true && e.key === 'ArrowUp') {
                     // 用鍵盤選取文字
                     selection.selectUp();
-                }else if (e.shiftKey === true && e.key === 'ArrowDown') {
+                } else if (e.shiftKey === true && e.key === 'ArrowDown') {
                     // 用鍵盤選取文字
                     selection.selectDown();
-                }
-                else if (e.ctrlKey === true && e.key === 'c') { // ctrl + c 複製
-
+                } else if (e.ctrlKey === true && e.key === 'c') { // ctrl + c 複製
+                    selection.copySelection();
                 } else if (e.ctrlKey === true && e.key === 'v') { // ctrl + v 貼上
                     // 要清掉 textarea 中的文字
                     textInput.value = '';
@@ -413,35 +482,45 @@
                 } else if (e.key === 'ArrowDown') {
                     selection.moveDown();
                 } else if (e.key === 'Enter') {
+                    if (selection.isSelection()) {
+                        selection.deleteSelection();
+                    }
                     let selStart = selection.getStart();
                     let leftStr = editorContent[selStart.line].substr(0, selStart.ch);
                     let rightStr = editorContent[selStart.line].substr(selStart.ch, editorContent[selStart.line].length - selStart.ch);
                     editorContent[selStart.line] = leftStr;
                     this.insertLine(rightStr, selection.getStart().line + 1);
                     selection.setPosition(selStart.line + 1, rightStr.length);
+                    textInput.value = '';
                 } else if (e.key === 'Backspace') {
-                    let selStart = selection.getStart();
-                    let curLine = selStart.line;
-                    let curCh = selStart.ch;
-                    if (curCh > 0) {
-                        editorContent[curLine] = editorContent[curLine].substr(0, curCh - 1) + editorContent[curLine].substr(curCh, editorContent[curLine].length);
-                        selection.addChs(-1);
-                    } else if (curLine !== 0) {
-                        let content = editorContent[curLine];
-                        editorContent.splice(curLine, 1);
-                        editorContent[curLine - 1] = editorContent[curLine - 1].concat(content);
-                        selection.setPosition(curLine - 1, editorContent[curLine - 1].length);
+                    if (!selection.isSelection()) {
+                        let selStart = selection.getStart();
+                        let curLine = selStart.line;
+                        let curCh = selStart.ch;
+                        if (curCh > 0) {
+                            editorContent[curLine] = editorContent[curLine].substr(0, curCh - 1) + editorContent[curLine].substr(curCh, editorContent[curLine].length);
+                            selection.addChs(-1);
+                        } else if (curLine !== 0) {
+                            let content = editorContent[curLine];
+                            editorContent.splice(curLine, 1);
+                            editorContent[curLine - 1] = editorContent[curLine - 1].concat(content);
+                            selection.setPosition(curLine - 1, editorContent[curLine - 1].length);
+                        }
+                    } else {
+                        selection.deleteSelection();
                     }
                 } else if (e.key.length === 1) {
+                    if (selection.isSelection()) {
+                        selection.deleteSelection();
+                    }
                     let start = selection.getStart();
                     let curLine = start.line;
                     let curCh = start.ch;
                     editorContent[curLine] = editorContent[curLine].substr(0, curCh) + e.key + editorContent[curLine].substr(curCh);
                     selection.addChs(1);
+                    textInput.value = '';
                 }
                 render();
-                // 要清掉 textarea 中的文字
-                textInput.value = '';
             }
         }.bind(this);
     }
