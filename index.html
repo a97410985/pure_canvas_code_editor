@@ -1,11 +1,10 @@
-<!--  增加tab，tab佔多個空格 以及 新增可以輸入tab，tab=四個空格 -->
-<!--  修正有時滑鼠點擊在畫布上，但是滑鼠事件的target卻不是畫布，而是畫布的母元素的問題 -->
-<!--  將textArea藏在畫布下方，以及讓div，畫布的母元素在跟畫不一樣大 -->
+<!-- 增加編輯器(畫布)，讓他有水平滑桿跟垂直滑桿 以及 如果發現caret游標在畫布外就要自動捲動讓caret可以被看到 -->
+<!-- 解決字體模糊的問題 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>editor v10</title>
+    <title>editor v11</title>
     <style>
         .editor-non-focus {
             border: black 1px solid;
@@ -14,14 +13,67 @@
         .editor-focus {
             border: #ff7f11 1px solid;
         }
+
+        /*  滑桿ui的部分  */
+        .slider {
+            position: relative;
+            top: -4px;
+            margin: 0;
+            -webkit-appearance: none;
+            width: 500px;
+            height: 25px;
+            background: #d3d3d3;
+            outline: none;
+            opacity: 0.7;
+            -webkit-transition: .2s;
+            transition: opacity .2s;
+        }
+
+        .v-slider {
+            margin: 0;
+            -webkit-appearance: none;
+            width: 500px;
+            height: 25px;
+            background: #d3d3d3;
+            outline: none;
+            opacity: 0.7;
+            -webkit-transition: .2s;
+            transition: opacity .2s;
+        }
+
+        .slider:hover, .v-slider:hover {
+            opacity: 1;
+        }
+
+        .slider::-webkit-slider-thumb, .v-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 50px;
+            height: 25px;
+            background: #4CAF50;
+            cursor: pointer;
+        }
+
+        .v-slider {
+            position: absolute;
+            top: 238px;
+            left: 262px;
+            transform: rotate(90deg);
+        }
+
     </style>
+    <style data="slider" type="text/css"></style>
 </head>
 <body>
 <div id="canvas-text-editor" style="position:relative;width: fit-content">
-    <textarea id="textInput" style="position: absolute; z-index:-1;"></textarea>
-    <canvas id="canvas" width="500" height="500"></canvas>
+    <div>
+        <textarea id="textInput" style="position: absolute; z-index:-1;"></textarea>
+        <canvas id="canvas" width="500" height="500"></canvas>
+        <input type="range" min="0" max="100" value="0" class="v-slider" style="display: inline-block;">
+    </div>
+    <input type="range" min="0" max="100" value="0" class="slider">
 </div>
-
+<!-- source: https://github.com/jondavidjohn/hidpi-canvas-polyfill 將高畫質圖像縮小來達成高畫質繪製，解決字體模糊的問題 -->
+<script src="lib/hidpi-canvas.min.js"></script>
 <script src="https://ajax.googleapis.com/ajax/libs/webfont/1.6.26/webfont.js"></script>
 <script>
     WebFont.load({
@@ -144,18 +196,23 @@
     Selection.prototype.getEnd = function () {
         return this.end;
     }
+    let canvas = document.getElementById('canvas');
+    let editor_vScrollBar = document.querySelector('#canvas-text-editor>div>input[type=range]');
+    let editor_hScrollBar = document.querySelector('#canvas-text-editor>input[type=range]');
+    // todo: caret可能超出邊界
     Selection.prototype.updateCursor = function (line, ch) {
         // 因為一個tab佔四個空格，所以caret位置的計算比較特別
         let lineContent = this.editor.editorContent[line];
         let tabNum = 0;
+        let offset = this.editor.getOffset();
         for (let i = 0; i < ch; i++) {
             if (lineContent[i] === '\t') {
                 tabNum += 1;
             }
         }
         let contentWid = this.editor.fontMetric.getWidth() * (ch - tabNum) + this.editor.fontMetric.getWidth() * 4 * tabNum;
-        this.caretDiv.style.left = (this.editor.canvas.offsetLeft + contentWid + 1).toString() + 'px';
-        this.caretDiv.style.top = (this.editor.canvas.offsetTop + line * this.editor.getFontMetric().getHeight()).toString() + 'px';
+        this.caretDiv.style.left = (this.editor.canvas.offsetLeft + contentWid + 1 + offset.left).toString() + 'px';
+        this.caretDiv.style.top = (this.editor.canvas.offsetTop + line * this.editor.getFontMetric().getHeight() + offset.top).toString() + 'px';
         if (this.editor.focus) {
             this.caretDiv.style.opacity = '1';
             clearInterval(this.interval);
@@ -195,7 +252,6 @@
                 curCh = this.editor.editorContent[curLine].length;
             }
         }
-        console.log('curCh: ' + curCh);
         this.setPosition(curLine, curCh);
     }
     Selection.prototype.moveRight = function () {
@@ -210,7 +266,6 @@
         } else {
             curCh++;
         }
-        console.log('curCh: ' + curCh);
         this.setPosition(curLine, curCh);
     }
     Selection.prototype.moveUp = function () {
@@ -358,7 +413,8 @@
     // 要輸入相對於畫布的滑鼠座標
     Selection.prototype.getCaretPos = function (x, y) {
         // 超過目前所擁有的列，就取最後一列
-        let row = Math.floor(y / this.editor.fontMetric.getHeight());
+        let offset = this.editor.getOffset();
+        let row = Math.floor((-offset.top + y) / this.editor.fontMetric.getHeight());
         if (row > this.editor.editorContent.length - 1) {
             row = this.editor.editorContent.length - 1;
         }
@@ -366,7 +422,7 @@
         // 要考慮tab佔四個空間
         // 用累計的做法
         let lineStr = this.editor.editorContent[row];
-        let halfPos = 0;
+        let halfPos = offset.left;
         let column = -1;
         for (let i = 0; i < lineStr.length; i++) {
             if (i === 0) {
@@ -469,6 +525,117 @@
             selection.caretDiv.style.opacity = '0';
         }
 
+        this.editorContent = [];
+        let content = "using namespace std;\n" +
+            "int main()\n" +
+            "{\n" +
+            "\tint month, day;\n" +
+            "\tcout << \"Welcome\\n\";\n" +
+            "\tcin >> month;\n" +
+            "\tcin >> day;\n" +
+            "\tsrand(month * day);\n" +
+            "\tint prediction;\n" +
+            "\tchar ans;\n" +
+            "\tcout << \"Weather for today:\\n\";\n" +
+            "\tcout << \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n\";\n" +
+            "\tdo \n" +
+            "\t{\n" +
+            "\t\tprediction = rand() % 3;\n" +
+            "\t\tswitch (prediction)\n" +
+            "\t\t{\n" +
+            "\t\t\tcase 0:\n" +
+            "\t\t\t\tcout << '0';\n" +
+            "\t\t\t\tbreak;\n" +
+            "\t\t\tcase 1:\n" +
+            "\t\t\t\tcout << '1';\n" +
+            "\t\t\t\tbreak;\n" +
+            "\t\t\tdefault:\n" +
+            "\t\t\t\tcout << 'default';\n" +
+            "\t\t\n" +
+            "\t\t}\n" +
+            "\t\t\n" +
+            "\t} while (ans == 'y' || and == 'Y');\n" +
+            "\treturn 0;";
+        let lines = content.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+            this.editorContent.push(lines[i]);
+        }
+
+        // 在此設定畫面的大小，畫布呈現全部或部分的畫面，就由滑桿看不同的部分
+        // 要找出所有行中最寬的那一行
+        this.getLogestLineLeng = function () {
+            let maxLeng = -1;
+            for (let i = 0; i < this.editorContent.length; i++) {
+                let curLineLeng = 0;
+                for (let j = 0; j < this.editorContent[i].length; j++) {
+                    if (this.editorContent[i][j] === '\t') {
+                        curLineLeng += 4 * this.fontMetric.getWidth();
+                    } else {
+                        curLineLeng += this.fontMetric.getWidth();
+                    }
+                }
+                if (curLineLeng > maxLeng) {
+                    maxLeng = curLineLeng;
+                }
+            }
+            return maxLeng;
+        }
+        this.updateSliderBar = function () {
+            editor_scrollBar_style.innerHTML = ".v-slider::-webkit-slider-thumb { width: " + canvas.clientHeight / editor_height * canvas.clientHeight + "px; } .slider::-webkit-slider-thumb { width: " + canvas.clientWidth / editor_width * canvas.clientWidth + "px; }";
+        }
+        this.getEditorWid = function () {
+            let maxLeng = this.getLogestLineLeng();
+            if (maxLeng < canvas.clientWidth) {
+                return canvas.clientWidth;
+            }
+            return maxLeng;
+        }
+        this.getEditorHgt = function () {
+            let hgt = this.fontMetric.getHeight() * this.editorContent.length;
+            if (hgt < canvas.clientHeight) {
+                return canvas.clientHeight;
+            }
+            return hgt;
+        }
+        let editor_width = this.getEditorWid();
+        let editor_height = this.getEditorHgt();
+        this.getOffset = function () {
+            let top = -editor_vScrollBar.value / 100.0 * (editor_height - canvas.clientHeight);
+            let left = -editor_hScrollBar.value / 100.0 * (editor_width - canvas.clientWidth);
+            return {top: top, left: left};
+        }
+
+        this.moveSliderThumb = function (moveX, moveY) {
+            // 請注意editor_hScrollBar.value是字串
+            let oriHValue = parseInt(editor_hScrollBar.value);
+            editor_hScrollBar.value = oriHValue + Math.ceil(moveX / (editor_width - canvas.clientWidth) * 100);
+            console.log('editor_hScrollBar.value : ' + editor_hScrollBar.value);
+            let oriVValue = parseInt(editor_vScrollBar.value);
+            editor_vScrollBar.value = oriVValue + Math.ceil(moveY / (editor_height - canvas.clientHeight) * 100);
+        }
+        // todo: 撰寫能夠檢查caret是否超過邊界的函數
+        this.checkCaretOutOfRange = function () {
+            let endLine = this.selection.getEnd().line;
+            let endCh = this.selection.getEnd().ch;
+            let content = this.editorContent[endLine];
+            let tabNum = this.calculateTabNum(content, 0, endCh);
+            let curX = tabNum * this.fontMetric.getWidth() * 4 + (endCh - tabNum) * this.fontMetric.getWidth();
+            let curY = (endLine + 1) * this.fontMetric.getHeight();
+            let moveX = curX + this.getOffset().left - canvas.clientWidth;
+            if (moveX > 0) {
+                this.moveSliderThumb(moveX, 0);
+            } else if (moveX < -canvas.clientWidth) {
+                this.moveSliderThumb(moveX + canvas.clientWidth - 10, 0);
+            }
+            let moveY = curY + this.getOffset().top - canvas.clientHeight;
+            if (moveY > 0) {
+                this.moveSliderThumb(0, moveY);
+            } else if (moveY < -canvas.clientHeight + this.fontMetric.getBaseline()) {
+                this.moveSliderThumb(0, moveY + canvas.clientHeight - this.fontMetric.getHeight());
+            }
+            this.selection.updateCursor(endLine, endCh);
+        }
+
         // 繪製時需要使用的文字與樣式資訊
         this.editorContentStyle = [];
         this.EditNotifyType = {
@@ -523,23 +690,86 @@
 
         let canvasMouseUp = false;
         let canvasMouseDown = false;
+        let expandSelection = function (offsetX, offsetY) {
+            console.log(this.editorContent[this.selection.getEnd().line].length);
+            let oriEndCh = this.selection.getEnd().ch;
+            let oriEndLine = this.selection.getEnd().line;
+            let curLineLeng = this.editorContent[this.selection.getEnd().line].length;
+            if (offsetX === 1) {
+                if (oriEndCh < curLineLeng) {
+                    this.selection.setEndPos(oriEndLine, oriEndCh + offsetX);
+                }
+            } else if (offsetX === -1) {
+                if (oriEndCh > 0) {
+                    this.selection.setEndPos(oriEndLine, oriEndCh + offsetX);
+                }
+            } else if (offsetY === 1) {
+                if (oriEndLine < this.editorContent.length) {
+                    this.selection.setEndPos(oriEndLine + offsetY, oriEndCh);
+                }
+            } else if (offsetY === -1) {
+                if (oriEndLine > 0) {
+                    this.selection.setEndPos(oriEndLine + offsetY, oriEndCh);
+                }
+            }
+            console.log(' haha: ' + oriEndCh);
+            // todo: haha
+            this.checkCaretOutOfRange();
+            this.render();
+        }.bind(this);
+        let expandSelection_id = null;
         document.onmouseup = function (e) {
             canvasMouseDown = false;
+            if (expandSelection_id) {
+                clearInterval(expandSelection_id);
+                this.getFocus();
+            }
         }.bind(this);
         document.onmousedown = function (e) {
             canvasMouseDown = true;
             selection.mouseClick(e);
+            console.log('document.onmousedown');
             render();
         }.bind(this);
-        canvas.onmousemove = function (e) {
-            let sLine = selection.getStart().line;
-            let sCh = selection.getStart().ch;
+
+        canvas.onmouseleave = function (e) {
             let mousePos = selection.getMousePos(e);
-            let mouseUpCaretPos = selection.getCaretPos(mousePos.x, mousePos.y);
-            // t設定選取的範圍
             if (canvasMouseDown) {
-                selection.setEndPos(mouseUpCaretPos.line, mouseUpCaretPos.ch);
-                selection.updateCursor(mouseUpCaretPos.line, mouseUpCaretPos.ch);
+                if (mousePos.x >= canvas.style.left + canvas.clientWidth - 10) {
+                    console.log('canvas.onmouseleave ');
+                    expandSelection_id = setInterval(function () {
+                        expandSelection(1, 0);
+                    }, 50);
+                } else if (mousePos.x <= canvas.style.left+10) {
+                    console.log('canvas.onmouseleave ');
+                    expandSelection_id = setInterval(function () {
+                        expandSelection(-1, 0);
+                    }, 50);
+                } else if (mousePos.y >= canvas.style.top + canvas.clientHeight - 10) {
+                    console.log('canvas.onmouseleave ');
+                    expandSelection_id = setInterval(function () {
+                        expandSelection(0, 1);
+                    }, 50);
+                } else if (mousePos.y <= canvas.style.top + 10) {
+                    console.log('canvas.onmouseleave ');
+                    expandSelection_id = setInterval(function () {
+                        expandSelection(0, -1);
+                    }, 50);
+                }
+            }
+        }.bind(this);
+
+        canvas.onmousemove = function (e) {
+            let mousePos = selection.getMousePos(e);
+            let curCaretPos = selection.getCaretPos(mousePos.x, mousePos.y);
+            // todo: 這時候做的事情很有可能是選取區塊並且滑鼠位置在畫布外，如果是那樣的話就很可能進行游標的移動
+            // 設定選取的範圍
+            if (canvasMouseDown) {
+                if (expandSelection_id) {
+                    clearInterval(expandSelection_id);
+                }
+                selection.setEndPos(curCaretPos.line, curCaretPos.ch);
+                selection.updateCursor(curCaretPos.line, curCaretPos.ch);
                 render();
             }
         }.bind(this);
@@ -560,6 +790,9 @@
         }
 
         this.drawSelectionHasTab = function (lineNum, sCh, eCh) {
+            let offset = this.getOffset();
+            let left = offset.left;
+            let top = offset.top;
             let chWid = this.fontMetric.getWidth();
             let chHgt = this.fontMetric.getHeight();
             let curLineStr = this.editorContent[lineNum];
@@ -570,18 +803,18 @@
                 caretRightTabNum = this.calculateTabNum(curLineStr, eCh, sCh - 1);
             }
             // 包含第一個時，要扣掉第一個tab
-            if (sCh === 0 || eCh === 0){
-                if (caretLeftTabNum === 1){
+            if (sCh === 0 || eCh === 0) {
+                if (caretLeftTabNum === 1) {
                     caretLeftTabNum -= 1;
                 }
             }
             let addtionalCaretLeftLength = 3 * this.fontMetric.getWidth() * caretLeftTabNum;
             let addtionalCaretRightLength = 3 * this.fontMetric.getWidth() * caretRightTabNum;
             if (eCh < sCh) {
-                this.ctx.fillRect(2 + Math.min(sCh, eCh) * chWid + addtionalCaretLeftLength, chHgt * lineNum, chWid * (Math.abs(sCh - eCh)) + addtionalCaretRightLength, chHgt);
+                this.ctx.fillRect(2 + Math.min(sCh, eCh) * chWid + addtionalCaretLeftLength + left, chHgt * lineNum + top, chWid * (Math.abs(sCh - eCh)) + addtionalCaretRightLength, chHgt);
 
             } else {
-                this.ctx.fillRect(2 + Math.min(sCh, eCh) * chWid + addtionalCaretLeftLength, chHgt * lineNum, chWid * (Math.abs(sCh - eCh)) + addtionalCaretRightLength, chHgt);
+                this.ctx.fillRect(2 + Math.min(sCh, eCh) * chWid + addtionalCaretLeftLength + left, chHgt * lineNum + top, chWid * (Math.abs(sCh - eCh)) + addtionalCaretRightLength, chHgt);
             }
         }
 
@@ -660,15 +893,15 @@
             }
 
             // string中間可能有空白因此被切割相異word
-            function isString(wordArr, SWordIndex){
+            function isString(wordArr, SWordIndex) {
                 let matchEndIndex = -1;
-                for (let i = SWordIndex; i < wordArr.length ; i++){
+                for (let i = SWordIndex; i < wordArr.length; i++) {
                     if (wordArr[SWordIndex].length > 0 && wordArr[i].length > 0) {
-                        if (wordArr[SWordIndex][0] === '\'' && wordArr[i][wordArr[i].length-1] === '\'') {
+                        if (wordArr[SWordIndex][0] === '\'' && wordArr[i][wordArr[i].length - 1] === '\'') {
                             matchEndIndex = i;
                             break;
                         }
-                        if (wordArr[SWordIndex][0] === '\"' && wordArr[i][wordArr[i].length-1] === '\"'){
+                        if (wordArr[SWordIndex][0] === '\"' && wordArr[i][wordArr[i].length - 1] === '\"') {
                             matchEndIndex = i;
                             break;
                         }
@@ -678,7 +911,6 @@
             }
 
 
-            console.log('wordArr : ' + wordArr);
             let instructionWordArr = ['and', 'break', 'case', 'catch', 'continue', 'delete', 'new', 'using', 'namespace', 'while', 'return', 'default', 'do', 'switch', 'default'];
             let instructionWordColor = '#0000FF';
             let instructionType = 'bold';
@@ -696,15 +928,15 @@
                     wordStyleArr.push(colorInfo(instructionWordColor, wordArr[i], instructionType));
                 } else if (matchOne(wordArr[i], typeWordArr)) {
                     wordStyleArr.push(colorInfo(typeWordColor, wordArr[i], typeWordType));
-                } else if (isString(wordArr,i)!==-1) { // 辨識字串
-                    let endIndex = isString(wordArr,i);
-                    for (let j = i ; j <= endIndex ; j++){
+                } else if (isString(wordArr, i) !== -1) { // 辨識字串
+                    let endIndex = isString(wordArr, i);
+                    for (let j = i; j <= endIndex; j++) {
                         wordStyleArr.push(colorInfo(stringColor, wordArr[j], stringType));
                     }
                     i = endIndex;
                 } else if (!isNaN(parseInt(wordArr[i])) || !isNaN(parseFloat(wordArr[i]))) {
                     wordStyleArr.push(colorInfo(numberColor, wordArr[i], numberType));
-                }else {
+                } else {
                     wordStyleArr.push(colorInfo('#000000', wordArr[i], ''));
                 }
             }
@@ -726,6 +958,9 @@
             this.ctx.fillStyle = 'white';
             this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
+            let offset = this.getOffset();
+            let left = offset.left;
+            let top = offset.top;
             // 繪製選取的文字區塊
             this.renderSelection(selection.getStart().line, selection.getStart().ch, selection.getEnd().line, selection.getEnd().ch);
 
@@ -736,7 +971,7 @@
                 for (let j = 0; j < this.editorContentStyle[i].length; j++) {
                     let content = this.editorContentStyle[i][j].str;
                     if (content === '\t') {
-                        this.ctx.fillText('    ', 2 + posX, this.fontMetric.getBaseline() + this.fontMetric.getHeight() * i);
+                        this.ctx.fillText('    ', 2 + posX + left, this.fontMetric.getBaseline() + this.fontMetric.getHeight() * i + top);
                         posX += this.fontMetric.getWidth() * 4;
                     } else {
                         this.ctx.fillStyle = this.editorContentStyle[i][j].color;
@@ -745,18 +980,14 @@
                         } else {
                             this.ctx.font = fontSize + 'px ' + fontFamily;
                         }
-                        this.ctx.fillText(content, 2 + posX, this.fontMetric.getBaseline() + this.fontMetric.getHeight() * i);
+                        this.ctx.fillText(content, 2 + posX + left, this.fontMetric.getBaseline() + this.fontMetric.getHeight() * i + top);
                         posX += this.fontMetric.getWidth() * content.length;
                     }
                 }
             }
         }
 
-        this.editorContent = [];
-        this.editorContent.push("aa aaa  a");
-        this.editorContent.push("bbb  bbb  bb");
-        this.editorContent.push("ccc     cccccc");
-        this.editorContent.push("ddd       dddddddd");
+
         this.editorContentStyle = this.colorLexerArr(this.editorContent);
         this.selection.setPosition(2, 3);
         this.render();
@@ -874,6 +1105,7 @@
                     } else {
                         selection.deleteSelection();
                     }
+
                 } else if (e.key === 'Tab') {
                     let start = selection.getStart();
                     let curLine = start.line;
@@ -894,7 +1126,13 @@
                     selection.addChs(1);
                     this.updateEditorContentStyle(this.EditNotifyType.CHANGE, {sLine: curLine, eLine: curLine});
                     textInput.value = '';
+
                 }
+                // 可能會因為刪掉或新增而要刷新editor_height, editor_width和滑桿thumb的大小
+                editor_height = this.getEditorHgt();
+                editor_width = this.getEditorWid();
+                this.updateSliderBar();
+                this.checkCaretOutOfRange();
                 render();
                 // 如果焦點在canvas上，也就是編輯器上，就讓編輯器吃掉鍵盤訊號，不要讓鍵盤訊號影響到其他的地方
                 if (e.ctrlKey !== true && e.key !== 'v') {
@@ -902,7 +1140,33 @@
                 }
             }
         }.bind(this);
+        // 下面是根據滑桿重新繪製的部分
 
+
+        // 根據畫布大小，調整水平和垂直滑桿的長度
+        editor_hScrollBar.style.width = canvas.clientWidth + 'px';
+        editor_vScrollBar.style.width = canvas.clientHeight + 'px';
+        editor_vScrollBar.style.top = canvas.clientHeight / 2 - 12 + 'px';
+        editor_vScrollBar.style.left = -editor_vScrollBar.clientWidth / 2 + canvas.clientWidth + 12 + 'px';
+
+        // 根據實際編輯區塊的大小與畫布大小，決定滑桿上的按鈕長度
+        let editor_scrollBar_style = document.querySelector('[data="slider"]');
+        editor_scrollBar_style.innerHTML = ".v-slider::-webkit-slider-thumb { width: " + canvas.clientHeight / editor_height * canvas.clientHeight + "px; } .slider::-webkit-slider-thumb { width: " + canvas.clientWidth / editor_width * canvas.clientWidth + "px; }";
+
+        render();
+        // 當拉動滑桿時要重新繪製
+        editor_vScrollBar.oninput = function () {
+            let offset = this.getOffset();
+            // 重新繪製
+            // todo: 繪製東西的位置要根據滑桿做調整
+            render();
+        }.bind(this);
+        editor_hScrollBar.oninput = function () {
+            let offset = this.getOffset();
+            // 重新繪製
+            console.log(editor_hScrollBar.value);
+            render();
+        }.bind(this);
     }
 </script>
 
