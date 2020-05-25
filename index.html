@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>editor v1</title>
+    <title>editor v3</title>
     <style>
         .editor-non-focus {
             border: black 1px solid;
@@ -16,7 +16,7 @@
 <body>
 <div id="canvas-text-editor">
     <canvas id="canvas" width="500" height="500"></canvas>
-    <textarea></textarea>
+    <textarea id="textInput"></textarea>
 </div>
 
 <script src="https://ajax.googleapis.com/ajax/libs/webfont/1.6.26/webfont.js"></script>
@@ -109,16 +109,6 @@
 </script>
 
 <script>
-    String.prototype.removeAt = function (pos) {
-        let str = '';
-        for (let i = 0 ; i < this.length; i++){
-            if (i !== pos){
-                str += this[i];
-            }
-        }
-        return str;
-    }
-
     var Selection = function (editor) {
         this.editor = editor;
         this.start = {
@@ -230,27 +220,11 @@
         }
         this.setPosition(curLine, curCh);
     }
-    Selection.prototype.deleteCharAt = function (line, ch) {
-        let curCh = this.start.ch;
-        let curLine = this.start.line;
-        if (curCh === 0 && curLine > 0) {
-            let content = this.editor.editorContent[curLine];
-            this.editor.editorContent.splice(curLine,1);
-            curLine--;
-            curCh = this.editor.editorContent[curLine].length;
-            this.editor.editorContent[curLine] += content;
-        } else {
-            let content = this.editor.editorContent[curLine];
-            curCh--;
-            this.editor.editorContent[curLine] = content.removeAt(curCh);
-        }
-        this.setPosition(curLine,curCh);
-        this.editor.render();
-    }
 
     var Editor = function () {
         this.editor = document.getElementById("canvas-text-editor");
         let canvas = document.getElementById('canvas');
+        let textInput = document.getElementById('textInput');
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
         var fontSize = 20;
@@ -263,6 +237,25 @@
         this.getEl = function () {
             return this.editor;
         }
+        this.insertLine = function (text, lineIndex) {
+            editorContent.splice(lineIndex, 0, text);
+        }
+        this.getFocus = function () {
+            textInput.focus();
+            this.focus = true;
+            canvas.classList.add('editor-focus');
+            selection.caretDiv.style.opacity = '1';
+            selection.interval = setInterval(selection.blink.bind(selection), selection.blinkInterval);
+            console.log(selection.interval);
+        }
+
+        this.lostFocus = function () {
+            this.focus = false;
+            canvas.classList.remove('editor-focus');
+            clearInterval(selection.interval);
+            console.log(selection.interval);
+            selection.caretDiv.style.opacity = '0';
+        }
 
 
         this.selection = new Selection(this);
@@ -270,22 +263,18 @@
         this.focus = false;
         canvas.classList.add('editor-non-focus');
         this.ctx.font = fontSize + 'px ' + fontFamily;
+        textInput.onblur = function (e){
+            // 因為滑鼠按到瀏覽器不是頁面的視窗或是其他視窗，導致焦點遺失
+            this.lostFocus();
+            console.log('haha '+ e);
+        }.bind(this);
         document.onclick = function (e) {
-            console.log(this);
             if (e.target === canvas) {
                 if (this.focus === false) {
-                    this.focus = true;
-                    canvas.classList.add('editor-focus');
-                    selection.caretDiv.style.opacity = '1';
-                    selection.interval = setInterval(selection.blink.bind(selection), selection.blinkInterval);
-                    console.log(selection.interval);
+                    this.getFocus();
                 }
             } else {
-                this.focus = false;
-                canvas.classList.remove('editor-focus');
-                clearInterval(selection.interval);
-                console.log(selection.interval);
-                selection.caretDiv.style.opacity = '0';
+                this.lostFocus();
             }
         }.bind(this);
         this.render = function () {
@@ -298,9 +287,9 @@
         }
 
         this.editorContent = [];
-        this.editorContent.push("abcdefg");
-        this.editorContent.push("hijklmn");
-        this.editorContent.push("opqrstuvewxy");
+        this.editorContent.push("aaaaaaaaaaaa");
+        this.editorContent.push("mmmmmmmmm");
+        this.editorContent.push("cccccc");
         this.selection.setPosition(2, 3);
         this.render();
         let editorContent = this.editorContent;
@@ -310,7 +299,9 @@
                 console.log('key' + e.key);
                 console.log('code' + e.code);
                 // 要排除掉一些特殊按鍵像是Enter、上下左右方向鍵等
-                if (e.key === 'ArrowLeft') {
+                if (e.ctrlKey === true && e.key === 'c') { // ctrl + c
+                    alert('複製');
+                } else if (e.key === 'ArrowLeft') {
                     selection.moveLeft();
                 } else if (e.key === 'ArrowRight') {
                     selection.moveRight();
@@ -318,8 +309,28 @@
                     selection.moveUp();
                 } else if (e.key === 'ArrowDown') {
                     selection.moveDown();
+                } else if (e.key === 'Enter') {
+                    let selStart = selection.getStart();
+                    let leftStr = editorContent[selStart.line].substr(0, selStart.ch);
+                    let rightStr = editorContent[selStart.line].substr(selStart.ch, editorContent[selStart.line].length - selStart.ch);
+                    editorContent[selStart.line] = leftStr;
+                    this.insertLine(rightStr, selection.getStart().line + 1);
+                    selection.setPosition(selStart.line + 1, rightStr.length);
+                    render();
                 } else if (e.key === 'Backspace') {
-                    selection.deleteCharAt(selection.start.line,selection.start.ch);
+                    let selStart = selection.getStart();
+                    let curLine = selStart.line;
+                    let curCh = selStart.ch;
+                    if (curCh > 0) {
+                        editorContent[curLine] = editorContent[curLine].substr(0, curCh - 1) + editorContent[curLine].substr(curCh, editorContent[curLine].length);
+                        selection.addChs(-1);
+                    } else if (curLine !== 0) {
+                        let content = editorContent[curLine];
+                        editorContent.splice(curLine, 1);
+                        editorContent[curLine - 1] = editorContent[curLine - 1].concat(content);
+                        selection.setPosition(curLine - 1, editorContent[curLine - 1].length);
+                    }
+                    render();
                 } else if (e.key.length === 1) {
                     let start = selection.getStart();
                     let curLine = start.line;
