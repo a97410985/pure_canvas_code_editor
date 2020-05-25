@@ -1,9 +1,11 @@
-<!--  繪製有樣式的文字 以及 修正有時在選取文字結束時會失去畫布的焦點 -->
+<!--  增加tab，tab佔多個空格 以及 新增可以輸入tab，tab=四個空格 -->
+<!--  修正有時滑鼠點擊在畫布上，但是滑鼠事件的target卻不是畫布，而是畫布的母元素的問題 -->
+<!--  將textArea藏在畫布下方，以及讓div，畫布的母元素在跟畫不一樣大 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>editor v9</title>
+    <title>editor v10</title>
     <style>
         .editor-non-focus {
             border: black 1px solid;
@@ -15,9 +17,9 @@
     </style>
 </head>
 <body>
-<div id="canvas-text-editor">
+<div id="canvas-text-editor" style="position:relative;width: fit-content">
+    <textarea id="textInput" style="position: absolute; z-index:-1;"></textarea>
     <canvas id="canvas" width="500" height="500"></canvas>
-    <textarea id="textInput" style="position: absolute"></textarea>
 </div>
 
 <script src="https://ajax.googleapis.com/ajax/libs/webfont/1.6.26/webfont.js"></script>
@@ -143,8 +145,15 @@
         return this.end;
     }
     Selection.prototype.updateCursor = function (line, ch) {
+        // 因為一個tab佔四個空格，所以caret位置的計算比較特別
         let lineContent = this.editor.editorContent[line];
-        let contentWid = this.editor.ctx.measureText(lineContent.substr(0, ch)).width;
+        let tabNum = 0;
+        for (let i = 0; i < ch; i++) {
+            if (lineContent[i] === '\t') {
+                tabNum += 1;
+            }
+        }
+        let contentWid = this.editor.fontMetric.getWidth() * (ch - tabNum) + this.editor.fontMetric.getWidth() * 4 * tabNum;
         this.caretDiv.style.left = (this.editor.canvas.offsetLeft + contentWid + 1).toString() + 'px';
         this.caretDiv.style.top = (this.editor.canvas.offsetTop + line * this.editor.getFontMetric().getHeight()).toString() + 'px';
         if (this.editor.focus) {
@@ -186,6 +195,7 @@
                 curCh = this.editor.editorContent[curLine].length;
             }
         }
+        console.log('curCh: ' + curCh);
         this.setPosition(curLine, curCh);
     }
     Selection.prototype.moveRight = function () {
@@ -200,6 +210,7 @@
         } else {
             curCh++;
         }
+        console.log('curCh: ' + curCh);
         this.setPosition(curLine, curCh);
     }
     Selection.prototype.moveUp = function () {
@@ -255,7 +266,6 @@
         this.start.ch = oriSCh;
     }
     Selection.prototype.deleteSelection = function () {
-        console.log('sLine' + this.start.line + " ; eLine" + this.end.line);
         if (this.start.line === this.end.line) {
             let content = this.editor.editorContent[this.start.line];
             let left = Math.min(this.start.ch, this.end.ch);
@@ -272,7 +282,6 @@
             let downRightStr = '';
             let startLineStr = this.editor.editorContent[this.start.line];
             let endLineStr = this.editor.editorContent[this.end.line];
-            console.log('sLine' + this.start.line + " ; eLine" + this.end.line);
 
             if (this.start.line < this.end.line) {
                 downRightStr = endLineStr.substr(this.end.ch, endLineStr.length - this.end.ch);
@@ -340,7 +349,6 @@
             }
 
         }
-        console.log('copy: ' + copyStr);
         //  要把文字真的放到剪貼簿
         this.textInputDom.value = copyStr;
         this.textInputDom.select();
@@ -355,10 +363,52 @@
             row = this.editor.editorContent.length - 1;
         }
         // 如果超過所在列最右邊的字，就取最右邊的字
-        let column = Math.floor((x / (this.editor.fontMetric.getWidth() / 2.0) + 1) / 2);
-        if (column > this.editor.editorContent[row].length) {
-            column = this.editor.editorContent[row].length;
+        // 要考慮tab佔四個空間
+        // 用累計的做法
+        let lineStr = this.editor.editorContent[row];
+        let halfPos = 0;
+        let column = -1;
+        for (let i = 0; i < lineStr.length; i++) {
+            if (i === 0) {
+                if (lineStr[i] === '\t') {
+                    if (x >= halfPos && x <= halfPos + this.editor.fontMetric.getWidth() * 2) {
+                        column = i;
+                        break;
+                    }
+                    halfPos += this.editor.fontMetric.getWidth() * 2;
+                } else {
+                    if (x >= halfPos && x <= halfPos + this.editor.fontMetric.getWidth() / 2) {
+                        column = i;
+                        break;
+                    }
+                    halfPos += this.editor.fontMetric.getWidth() / 2;
+                }
+            } else {
+                let twoPointHalfSum = 0;
+                if (lineStr[i] === '\t') {
+                    if (lineStr[i - 1] === '\t') {
+                        twoPointHalfSum = this.editor.fontMetric.getWidth() * (2 + 2);
+                    } else {
+                        twoPointHalfSum = this.editor.fontMetric.getWidth() * (2 + 1 / 2.0);
+                    }
+                } else {
+                    if (lineStr[i - 1] === '\t') {
+                        twoPointHalfSum = this.editor.fontMetric.getWidth() * (2 + 1 / 2.0);
+                    } else {
+                        twoPointHalfSum = this.editor.fontMetric.getWidth() * (1 / 2.0 + 1 / 2.0);
+                    }
+                }
+                if (x >= halfPos && x <= halfPos + twoPointHalfSum) {
+                    column = i;
+                    break;
+                }
+                halfPos += twoPointHalfSum;
+            }
         }
+        if (column === -1) {
+            column = lineStr.length;
+        }
+
         return {
             line: row,
             ch: column
@@ -426,33 +476,26 @@
             CHANGE: 2,
             ADD: 3
         }
-        // todo: 要替換colorLexer，讓editorContentStyle有色彩資訊
+        // 根據editorContentStyle繪製有色彩的文字
         this.updateEditorContentStyle = function (editType, range) {
             let sLine = parseInt(range.sLine);
             let eLine = parseInt(range.eLine);
             if (editType === this.EditNotifyType.ADD) {
-                console.log("add");
                 // sLine代表從第幾個editorContent為新增的內容
                 let pushIndex = sLine;
                 if (pushIndex < 0) pushIndex = 0;
                 for (let i = sLine; i <= eLine; i++) {
                     let lineColorInfo = this.colorLexerStr(this.editorContent[i]);
                     this.editorContentStyle.splice(pushIndex, 0, lineColorInfo);
-                    console.log("add line : " + pushIndex);
                     pushIndex++;
                 }
             } else if (editType === this.EditNotifyType.CHANGE) {
-                console.log("change");
                 for (let i = sLine; i <= eLine; i++) {
                     this.editorContentStyle[i] = this.colorLexerStr(this.editorContent[i]);
-                    console.log("change line : " + i);
                 }
             } else if (editType === this.EditNotifyType.DELETE) {
-                console.log("delete");
                 this.editorContentStyle.splice(sLine, eLine - sLine + 1);
             }
-            console.log('editorContentStyle : ' + this.editorContentStyle);
-            console.log('editorContent : ' + this.editorContent);
         }
 
         this.selection = new Selection(this);
@@ -466,7 +509,9 @@
         }.bind(this);
 
         document.onclick = function (e) {
-            if (e.target === canvas) {
+            // 有時候滑鼠點擊到畫布上，但是e.target會是<div id="canvas-text-editor"></div>，也就是它的母元素
+            // 快吐血 = =
+            if (e.target === canvas || e.target.id === 'canvas-text-editor') {
                 if (this.focus === false) {
                     this.getFocus();
                 }
@@ -479,9 +524,9 @@
         let canvasMouseUp = false;
         let canvasMouseDown = false;
         document.onmouseup = function (e) {
-            canvasMouseUp = true;
+            canvasMouseDown = false;
         }.bind(this);
-        canvas.onmousedown = function (e) {
+        document.onmousedown = function (e) {
             canvasMouseDown = true;
             selection.mouseClick(e);
             render();
@@ -497,38 +542,74 @@
                 selection.updateCursor(mouseUpCaretPos.line, mouseUpCaretPos.ch);
                 render();
             }
-            if (canvasMouseDown && canvasMouseUp) {
-                canvasMouseDown = false;
-                canvasMouseUp = false;
-                // 有時畫布會失去焦點，不知為何，所以要讓他重新取回焦點
-                this.getFocus();
-            }
-
         }.bind(this);
 
+        this.calculateTabNum = function (str, sCh, eCh) {
+            let tabNum = 0;
+            if (eCh < sCh) {
+                let temp = eCh;
+                eCh = sCh;
+                sCh = temp;
+            }
+            for (let i = sCh; i <= eCh; i++) {
+                if (str[i] === '\t') {
+                    tabNum += 1;
+                }
+            }
+            return tabNum;
+        }
+
+        this.drawSelectionHasTab = function (lineNum, sCh, eCh) {
+            let chWid = this.fontMetric.getWidth();
+            let chHgt = this.fontMetric.getHeight();
+            let curLineStr = this.editorContent[lineNum];
+            let caretLeftTabNum = this.calculateTabNum(curLineStr, 0, sCh - 1);
+            let caretRightTabNum = this.calculateTabNum(curLineStr, sCh, eCh - 1);
+            if (eCh < sCh) {
+                caretLeftTabNum = this.calculateTabNum(curLineStr, 0, eCh - 1);
+                caretRightTabNum = this.calculateTabNum(curLineStr, eCh, sCh - 1);
+            }
+            // 包含第一個時，要扣掉第一個tab
+            if (sCh === 0 || eCh === 0){
+                if (caretLeftTabNum === 1){
+                    caretLeftTabNum -= 1;
+                }
+            }
+            let addtionalCaretLeftLength = 3 * this.fontMetric.getWidth() * caretLeftTabNum;
+            let addtionalCaretRightLength = 3 * this.fontMetric.getWidth() * caretRightTabNum;
+            if (eCh < sCh) {
+                this.ctx.fillRect(2 + Math.min(sCh, eCh) * chWid + addtionalCaretLeftLength, chHgt * lineNum, chWid * (Math.abs(sCh - eCh)) + addtionalCaretRightLength, chHgt);
+
+            } else {
+                this.ctx.fillRect(2 + Math.min(sCh, eCh) * chWid + addtionalCaretLeftLength, chHgt * lineNum, chWid * (Math.abs(sCh - eCh)) + addtionalCaretRightLength, chHgt);
+            }
+        }
+
+        // tab佔四個空間
         this.renderSelection = function (sLine, sCh, eLine, eCh) {
             if (sLine !== eLine || sCh !== eCh) {
                 this.ctx.fillStyle = '#c4dbff';
                 let chWid = this.fontMetric.getWidth();
                 let chHgt = this.fontMetric.getHeight();
+                // 多一個tab會比原本多三個寬，用加的修正
                 if (sLine === eLine) {
-                    this.ctx.fillRect(2 + Math.min(sCh, eCh) * chWid, chHgt * sLine, chWid * (Math.abs(sCh - eCh)), chHgt);
+                    this.drawSelectionHasTab(sLine, sCh, eCh);
                 } else if (sLine < eLine) {
                     // 吃到右邊到底
-                    this.ctx.fillRect(2 + sCh * chWid, chHgt * sLine, chWid * (this.editorContent[sLine].length - sCh), chHgt);
+                    this.drawSelectionHasTab(sLine, sCh, this.editorContent[sLine].length);
                     for (let i = sLine + 1; i <= eLine - 1; i++) {
                         // 填滿整行
-                        this.ctx.fillRect(2, chHgt * i, chWid * this.editorContent[i].length, chHgt);
+                        this.drawSelectionHasTab(i, 0, this.editorContent[i].length);
                     }
-                    this.ctx.fillRect(2, chHgt * eLine, chWid * eCh, chHgt);
+                    this.drawSelectionHasTab(eLine, 0, eCh);
                 } else {
                     // 吃到左邊到底
-                    this.ctx.fillRect(2, chHgt * sLine, sCh * chWid, chHgt);
+                    this.drawSelectionHasTab(sLine, 0, sCh);
                     for (let i = sLine - 1; i >= eLine + 1; i--) {
                         // 填滿整行
-                        this.ctx.fillRect(2, chHgt * i, chWid * this.editorContent[i].length, chHgt);
+                        this.drawSelectionHasTab(i, 0, this.editorContent[i].length);
                     }
-                    this.ctx.fillRect(2 + eCh * chWid, chHgt * eLine, chWid * (this.editorContent[eLine].length - eCh), chHgt);
+                    this.drawSelectionHasTab(eLine, eCh, this.editorContent[eLine].length);
                 }
             }
         }
@@ -537,7 +618,7 @@
             return {color: color, str: str, type: type};
         }
 
-        // todo: 要撰寫將純文字變成有樣式的儲存形式的lexer
+        // 將純文字變成有樣式的儲存形式的lexer
         this.colorLexerStr = function (str) {
             let wordArr = [];
             let s = '';
@@ -548,11 +629,9 @@
                     if (s !== '') {
                         wordArr.push(s);
                         s = '';
-                        wordArr.push(' ');
-                    } else if (str[i]===' ') {
-                        wordArr.push(' ');
-                    } else{
-                        wordArr.push('\t');
+                        wordArr.push(str[i]);
+                    } else {
+                        wordArr.push(str[i]);
                     }
                 }
             }
@@ -560,17 +639,16 @@
 
             // wordArr會有一些word是「break;』，也就是結尾帶著標點符號
             // 要把它切開
-            let symbolArr = [':',';'];
-            for (let i = 0 ; i < wordArr.length ; i++){
+            let symbolArr = [':', ';'];
+            for (let i = 0; i < wordArr.length; i++) {
                 let word = wordArr[i];
-                if (matchOne(word[word.length-1], symbolArr)){
-                    wordArr.splice(i,1,word.substr(0,word.length-1),word.substr(word.length-1,1));
-                    i+=1;
+                if (matchOne(word[word.length - 1], symbolArr)) {
+                    wordArr.splice(i, 1, word.substr(0, word.length - 1), word.substr(word.length - 1, 1));
+                    i += 1;
                 }
             }
 
             let wordStyleArr = [];
-            console.log(wordArr);
 
             function matchOne(word, arr) {
                 for (let i = 0; i < arr.length; i++) {
@@ -581,19 +659,52 @@
                 return false;
             }
 
-            let instructionWordArr = ['and', 'break', 'case', 'catch', 'continue', 'delete', 'new', 'using', 'namespace', 'while', 'return', 'default','do','switch','default'];
+            // string中間可能有空白因此被切割相異word
+            function isString(wordArr, SWordIndex){
+                let matchEndIndex = -1;
+                for (let i = SWordIndex; i < wordArr.length ; i++){
+                    if (wordArr[SWordIndex].length > 0 && wordArr[i].length > 0) {
+                        if (wordArr[SWordIndex][0] === '\'' && wordArr[i][wordArr[i].length-1] === '\'') {
+                            matchEndIndex = i;
+                            break;
+                        }
+                        if (wordArr[SWordIndex][0] === '\"' && wordArr[i][wordArr[i].length-1] === '\"'){
+                            matchEndIndex = i;
+                            break;
+                        }
+                    }
+                }
+                return matchEndIndex;
+            }
+
+
+            console.log('wordArr : ' + wordArr);
+            let instructionWordArr = ['and', 'break', 'case', 'catch', 'continue', 'delete', 'new', 'using', 'namespace', 'while', 'return', 'default', 'do', 'switch', 'default'];
             let instructionWordColor = '#0000FF';
             let instructionType = 'bold';
             let typeWordArr = ['bool', 'char', 'const', 'double', 'enum', 'float', 'int', 'void'];
             let typeWordColor = '#8000FF';
             let typeWordType = '';
-            // todo: 新增關鍵字與顏色
+            let stringColor = '#808080';
+            let stringType = '';
+            let numberColor = '#FF8000';
+            let numberType = '';
+            // 設定特定關鍵字的顏色顏色資訊
+            // 辨識數字和字串並且設定他們的顏色
             for (let i = 0; i < wordArr.length; i++) {
                 if (matchOne(wordArr[i], instructionWordArr)) {
                     wordStyleArr.push(colorInfo(instructionWordColor, wordArr[i], instructionType));
-                } else if (matchOne(wordArr[i], typeWordArr)){
+                } else if (matchOne(wordArr[i], typeWordArr)) {
                     wordStyleArr.push(colorInfo(typeWordColor, wordArr[i], typeWordType));
-                } else {
+                } else if (isString(wordArr,i)!==-1) { // 辨識字串
+                    let endIndex = isString(wordArr,i);
+                    for (let j = i ; j <= endIndex ; j++){
+                        wordStyleArr.push(colorInfo(stringColor, wordArr[j], stringType));
+                    }
+                    i = endIndex;
+                } else if (!isNaN(parseInt(wordArr[i])) || !isNaN(parseFloat(wordArr[i]))) {
+                    wordStyleArr.push(colorInfo(numberColor, wordArr[i], numberType));
+                }else {
                     wordStyleArr.push(colorInfo('#000000', wordArr[i], ''));
                 }
             }
@@ -608,7 +719,7 @@
         }
 
 
-        // todo: 要根據editorContentStyle繪製 以及修改繪製方式
+        // 要根據editorContentStyle繪製 以及 遇到tab要當作四個空格來畫
         // 繪製文字和選取的區塊，根據editorContentStyle
         this.render = function () {
             // 清空畫面
@@ -624,14 +735,19 @@
                 let posX = 0;
                 for (let j = 0; j < this.editorContentStyle[i].length; j++) {
                     let content = this.editorContentStyle[i][j].str;
-                    this.ctx.fillStyle = this.editorContentStyle[i][j].color;
-                    if (this.editorContentStyle[i][j].type === 'bold') {
-                        this.ctx.font = 'bold ' + fontSize + 'px ' + fontFamily;
+                    if (content === '\t') {
+                        this.ctx.fillText('    ', 2 + posX, this.fontMetric.getBaseline() + this.fontMetric.getHeight() * i);
+                        posX += this.fontMetric.getWidth() * 4;
                     } else {
-                        this.ctx.font = fontSize + 'px ' + fontFamily;
+                        this.ctx.fillStyle = this.editorContentStyle[i][j].color;
+                        if (this.editorContentStyle[i][j].type === 'bold') {
+                            this.ctx.font = 'bold ' + fontSize + 'px ' + fontFamily;
+                        } else {
+                            this.ctx.font = fontSize + 'px ' + fontFamily;
+                        }
+                        this.ctx.fillText(content, 2 + posX, this.fontMetric.getBaseline() + this.fontMetric.getHeight() * i);
+                        posX += this.fontMetric.getWidth() * content.length;
                     }
-                    this.ctx.fillText(content, 2 + posX, this.fontMetric.getBaseline() + this.fontMetric.getHeight() * i);
-                    posX += this.fontMetric.getWidth() * content.length;
                 }
             }
         }
@@ -669,6 +785,7 @@
                     editorContent[curLine + lines.length - 1] += rightStr;
                     selection.setPosition(curLine + lines.length - 1, editorContent[curLine + lines.length - 1].length);
                 }
+
                 // 送出改變通知
                 this.updateEditorContentStyle(this.EditNotifyType.CHANGE, {
                     sLine: curLine,
@@ -680,7 +797,6 @@
                         eLine: parseInt(curLine) + (lines.length) - 1
                     });
                 }
-                console.log(this.editorContent.toString() === this.editorContentStyle.toString());
                 render();
             }
 
@@ -758,6 +874,15 @@
                     } else {
                         selection.deleteSelection();
                     }
+                } else if (e.key === 'Tab') {
+                    let start = selection.getStart();
+                    let curLine = start.line;
+                    let curCh = start.ch;
+                    editorContent[curLine] = editorContent[curLine].substr(0, curCh) + '\t' + editorContent[curLine].substr(curCh);
+                    this.updateEditorContentStyle(this.EditNotifyType.CHANGE, {sLine: curLine, eLine: curLine});
+                    selection.addChs(1);
+                    this.getFocus();
+
                 } else if (e.key.length === 1) {
                     if (selection.isSelection()) {
                         selection.deleteSelection();
@@ -771,6 +896,10 @@
                     textInput.value = '';
                 }
                 render();
+                // 如果焦點在canvas上，也就是編輯器上，就讓編輯器吃掉鍵盤訊號，不要讓鍵盤訊號影響到其他的地方
+                if (e.ctrlKey !== true && e.key !== 'v') {
+                    e.preventDefault();
+                }
             }
         }.bind(this);
 
