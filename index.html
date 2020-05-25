@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>editor v1</title>
+    <style>
+        .editor-non-focus {
+            border: black 1px solid;
+        }
+
+        .editor-focus {
+            border: #ff7f11 1px solid;
+        }
+    </style>
+</head>
+<body>
+<div id="canvas-text-editor">
+    <canvas id="canvas" width="500" height="500"></canvas>
+    <textarea></textarea>
+</div>
+
+<script src="https://ajax.googleapis.com/ajax/libs/webfont/1.6.26/webfont.js"></script>
+<script>
+    WebFont.load({
+        google: {
+            families: ['Courier New']
+        }
+    });
+</script>
+<script>
+    /**
+     * A simple wrapper for system fonts to provide
+     * @param {String} family Font Family (same as in CSS)
+     * @param {Number} size Size in px
+     * @constructor
+     */
+    var FontMetrics = function (family, size) {
+        this._family = family || (family = "Courier New, Courier, monospace");
+        this._size = parseInt(size) || (size = 12);
+
+        // Preparing container
+        var line = document.createElement('div'),
+            body = document.body;
+        line.style.position = 'absolute';
+        line.style.whiteSpace = 'nowrap';
+        line.style.font = size + 'px ' + family;
+        body.appendChild(line);
+
+        // Now we can measure width and height of the letter
+        var text = 'mmmmmmmmmm';
+        line.innerHTML = text;
+        this._width = line.offsetWidth / text.length;
+        this._height = line.offsetHeight;
+
+        // Now creating 1px sized item that will be aligned to baseline
+        // to calculate baseline shift
+        var span = document.createElement('span');
+        span.style.display = 'inline-block';
+        span.style.overflow = 'hidden';
+        span.style.width = '1px';
+        span.style.height = '1px';
+        line.appendChild(span);
+
+        // Baseline is important for positioning text on canvas
+        this._baseline = span.offsetTop + span.offsetHeight;
+        line.remove();
+    };
+
+
+    /**
+     * Returns font family
+     * @return {String}
+     */
+    FontMetrics.prototype.getFamily = function () {
+        return this._family;
+    };
+
+    /**
+     * Returns font family
+     * @return {Number}
+     */
+    FontMetrics.prototype.getSize = function () {
+        return this._size;
+    };
+
+    /**
+     * Returns line height in px
+     * @return {Number}
+     */
+    FontMetrics.prototype.getHeight = function () {
+        return this._height;
+    };
+
+    /**
+     * Returns line height in px
+     * @return {Number}
+     */
+    FontMetrics.prototype.getWidth = function () {
+        return this._width;
+    };
+
+    /**
+     * Returns line height in px
+     * @return {Number}
+     */
+    FontMetrics.prototype.getBaseline = function () {
+        return this._baseline;
+    };
+</script>
+
+<script>
+    String.prototype.removeAt = function (pos) {
+        let str = '';
+        for (let i = 0 ; i < this.length; i++){
+            if (i !== pos){
+                str += this[i];
+            }
+        }
+        return str;
+    }
+
+    var Selection = function (editor) {
+        this.editor = editor;
+        this.start = {
+            line: 0,
+            ch: 0
+        }
+        this.end = {
+            line: 0,
+            ch: 0
+        }
+        this.blinkInterval = 500;
+        this.caretDiv = document.createElement('div');
+        this.caretDiv.style.position = 'absolute';
+        this.caretDiv.style.width = '1px';
+        this.caretDiv.style.height = this.editor.getFontMetric().getHeight() + 'px';
+        this.caretDiv.style.background = 'black';
+        this.editor.getEl().appendChild(this.caretDiv);
+        this.blink = function () {
+            if (this.caretDiv.style.opacity === '1') {
+                this.caretDiv.style.opacity = '0';
+            } else {
+                this.caretDiv.style.opacity = '1';
+            }
+        }
+    }
+    Selection.prototype.getStart = function () {
+        return this.start;
+    }
+    Selection.prototype.getEnd = function () {
+        return this.end;
+    }
+    Selection.prototype.updateCursor = function (line, ch) {
+        let fontWid = this.editor.getFontMetric().getWidth();
+        let lineContent = this.editor.editorContent[line];
+        let contentWid = this.editor.ctx.measureText(lineContent.substr(0, ch)).width;
+        this.caretDiv.style.left = (this.editor.canvas.offsetLeft + contentWid + 1).toString() + 'px';
+        this.caretDiv.style.top = (this.editor.canvas.offsetTop + line * this.editor.getFontMetric().getHeight()).toString() + 'px';
+        if (this.editor.focus) {
+            this.caretDiv.style.opacity = '1';
+            clearInterval(this.interval);
+            this.interval = setInterval(this.blink.bind(this), this.blinkInterval);
+            console.log('haha');
+        } else {
+            this.caretDiv.style.opacity = '0';
+        }
+    }
+
+    Selection.prototype.addChs = function (num) {
+        this.start.ch += num;
+        this.end.ch += num;
+        this.updateCursor(this.start.line, this.start.ch);
+    }
+    Selection.prototype.setPosition = function (line, ch) {
+        this.start.line = line;
+        this.start.ch = ch;
+        this.end.line = line;
+        this.end.ch = ch;
+        this.updateCursor(line, ch);
+    }
+    Selection.prototype.moveLeft = function () {
+        // 要先清除目前選取的東西
+        let curCh = this.start.ch;
+        let curLine = this.start.line;
+        if (curCh > 0) {
+            curCh--;
+        } else {
+            if (curLine > 0) {
+                curLine--;
+                curCh = this.editor.editorContent[curLine].length;
+            }
+        }
+        this.setPosition(curLine, curCh);
+    }
+    Selection.prototype.moveRight = function () {
+        let curCh = this.start.ch;
+        let curLine = this.start.line;
+        let curLineStr = this.editor.editorContent[curLine];
+        if (curCh > curLineStr.length - 1) {
+            if (curLine < this.editor.editorContent.length - 1) {
+                curLine++;
+                curCh = 0;
+            }
+        } else {
+            curCh++;
+        }
+        this.setPosition(curLine, curCh);
+    }
+    Selection.prototype.moveUp = function () {
+        let curCh = this.start.ch;
+        let curLine = this.start.line;
+        if (curLine > 0) {
+            curLine--;
+            let curLineStr = this.editor.editorContent[curLine];
+            if (curCh > curLineStr.length) {
+                curCh = curLineStr.length;
+            }
+        }
+        this.setPosition(curLine, curCh);
+    }
+    Selection.prototype.moveDown = function () {
+        let curCh = this.start.ch;
+        let curLine = this.start.line;
+        if (curLine < this.editor.editorContent.length - 1) {
+            curLine++;
+            let curLineStr = this.editor.editorContent[curLine];
+            if (curCh > curLineStr.length) {
+                curCh = curLineStr.length;
+            }
+        }
+        this.setPosition(curLine, curCh);
+    }
+    Selection.prototype.deleteCharAt = function (line, ch) {
+        let curCh = this.start.ch;
+        let curLine = this.start.line;
+        if (curCh === 0 && curLine > 0) {
+            let content = this.editor.editorContent[curLine];
+            this.editor.editorContent.splice(curLine,1);
+            curLine--;
+            curCh = this.editor.editorContent[curLine].length;
+            this.editor.editorContent[curLine] += content;
+        } else {
+            let content = this.editor.editorContent[curLine];
+            curCh--;
+            this.editor.editorContent[curLine] = content.removeAt(curCh);
+        }
+        this.setPosition(curLine,curCh);
+        this.editor.render();
+    }
+
+    var Editor = function () {
+        this.editor = document.getElementById("canvas-text-editor");
+        let canvas = document.getElementById('canvas');
+        this.canvas = canvas;
+        this.ctx = canvas.getContext('2d');
+        var fontSize = 20;
+        var fontFamily = 'Courier New';
+        // 用baseline
+        this.fontMetric = new FontMetrics(fontFamily, fontSize);
+        this.getFontMetric = function () {
+            return this.fontMetric;
+        }
+        this.getEl = function () {
+            return this.editor;
+        }
+
+
+        this.selection = new Selection(this);
+        let selection = this.selection;
+        this.focus = false;
+        canvas.classList.add('editor-non-focus');
+        this.ctx.font = fontSize + 'px ' + fontFamily;
+        document.onclick = function (e) {
+            console.log(this);
+            if (e.target === canvas) {
+                if (this.focus === false) {
+                    this.focus = true;
+                    canvas.classList.add('editor-focus');
+                    selection.caretDiv.style.opacity = '1';
+                    selection.interval = setInterval(selection.blink.bind(selection), selection.blinkInterval);
+                    console.log(selection.interval);
+                }
+            } else {
+                this.focus = false;
+                canvas.classList.remove('editor-focus');
+                clearInterval(selection.interval);
+                console.log(selection.interval);
+                selection.caretDiv.style.opacity = '0';
+            }
+        }.bind(this);
+        this.render = function () {
+            this.ctx.fillStyle = 'white';
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+            this.ctx.fillStyle = 'black';
+            for (let i = 0; i < this.editorContent.length; i++) {
+                this.ctx.fillText(this.editorContent[i], 2, this.fontMetric.getBaseline() + this.fontMetric.getHeight() * i)
+            }
+        }
+
+        this.editorContent = [];
+        this.editorContent.push("abcdefg");
+        this.editorContent.push("hijklmn");
+        this.editorContent.push("opqrstuvewxy");
+        this.selection.setPosition(2, 3);
+        this.render();
+        let editorContent = this.editorContent;
+        let render = this.render.bind(this);
+        document.onkeydown = function (e) {
+            if (this.focus === true) {
+                console.log('key' + e.key);
+                console.log('code' + e.code);
+                // 要排除掉一些特殊按鍵像是Enter、上下左右方向鍵等
+                if (e.key === 'ArrowLeft') {
+                    selection.moveLeft();
+                } else if (e.key === 'ArrowRight') {
+                    selection.moveRight();
+                } else if (e.key === 'ArrowUp') {
+                    selection.moveUp();
+                } else if (e.key === 'ArrowDown') {
+                    selection.moveDown();
+                } else if (e.key === 'Backspace') {
+                    selection.deleteCharAt(selection.start.line,selection.start.ch);
+                } else if (e.key.length === 1) {
+                    let start = selection.getStart();
+                    let curLine = start.line;
+                    let curCh = start.ch;
+                    editorContent[curLine] = editorContent[curLine].substr(0, curCh) + e.key + editorContent[curLine].substr(curCh);
+                    selection.addChs(1);
+                    render();
+                }
+            }
+        }.bind(this);
+    }
+
+
+</script>
+
+<script>
+    var editor = new Editor();
+
+</script>
+</body>
+</html>
