@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>editor v3</title>
+    <title>editor v4</title>
     <style>
         .editor-non-focus {
             border: black 1px solid;
@@ -240,6 +240,10 @@
         this.insertLine = function (text, lineIndex) {
             editorContent.splice(lineIndex, 0, text);
         }
+        this.insertText = function (text, lineIndex, chIndex) {
+            curStr = editorContent[lineIndex];
+            editorContent[lineIndex] = curStr.substr(0, chIndex) + text + curStr.substr(chIndex, curStr.length - chIndex);
+        }
         this.getFocus = function () {
             textInput.focus();
             this.focus = true;
@@ -263,10 +267,10 @@
         this.focus = false;
         canvas.classList.add('editor-non-focus');
         this.ctx.font = fontSize + 'px ' + fontFamily;
-        textInput.onblur = function (e){
+        textInput.onblur = function (e) {
             // 因為滑鼠按到瀏覽器不是頁面的視窗或是其他視窗，導致焦點遺失
             this.lostFocus();
-            console.log('haha '+ e);
+            console.log('haha ' + e);
         }.bind(this);
         document.onclick = function (e) {
             if (e.target === canvas) {
@@ -294,13 +298,42 @@
         this.render();
         let editorContent = this.editorContent;
         let render = this.render.bind(this);
+        textInput.oninput = function (e) {
+            console.log(e);
+            console.log(textInput.value);
+            if (e.inputType === 'insertFromPaste') {
+                // 要檢查是否有換行符號
+                let lines = textInput.value.split('\n');
+                let curLine = selection.getStart().line;
+                let curCh = selection.getStart().ch;
+                if (lines.length === 1) {
+                    this.insertText(textInput.value, curLine, curCh);
+                    selection.setPosition(curLine, curCh + textInput.value.length);
+                } else {
+                    let leftStr = editorContent[curLine].substr(0, curCh);
+                    let rightStr = editorContent[curLine].substr(curCh, editorContent[curLine].length - curCh);
+                    editorContent[curLine] = leftStr + lines[0];
+                    for (let i = 1; i < lines.length; i++) {
+                        this.insertLine(lines[i], curLine + i);
+                    }
+                    editorContent[curLine + lines.length - 1] += rightStr;
+                    selection.setPosition(curLine + lines.length - 1, editorContent[curLine + lines.length - 1].length);
+                }
+                console.log(textInput.value.split('\n'));
+                render();
+            }
+
+        }.bind(this);
         document.onkeydown = function (e) {
             if (this.focus === true) {
                 console.log('key' + e.key);
                 console.log('code' + e.code);
-                // 要排除掉一些特殊按鍵像是Enter、上下左右方向鍵等
-                if (e.ctrlKey === true && e.key === 'c') { // ctrl + c
-                    alert('複製');
+                // 要特別看待一些特殊按鍵像是Enter、上下左右方向鍵等
+                if (e.ctrlKey === true && e.key === 'c') { // ctrl + c 複製
+
+                } else if (e.ctrlKey === true && e.key === 'v') { // ctrl + v 貼上
+                    // 要清掉 textarea 中的文字
+                    textInput.value = '';
                 } else if (e.key === 'ArrowLeft') {
                     selection.moveLeft();
                 } else if (e.key === 'ArrowRight') {
@@ -339,6 +372,8 @@
                     selection.addChs(1);
                     render();
                 }
+                // 要清掉 textarea 中的文字
+                textInput.value = '';
             }
         }.bind(this);
     }
